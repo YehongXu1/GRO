@@ -115,7 +115,7 @@ namespace benchmark
 #define NULLINDEX 0xFFFFFFFF
 
     template<int log_k>
-    class heap
+    class heapCust
     {
 
     public:
@@ -126,15 +126,15 @@ namespace benchmark
 
     public:
 
-        // Constructor of the heap.
-        explicit heap(int n) : n(0), max_n(n), position(n, NULLINDEX), elements(n)
+        // Constructor of the heapCust.
+        explicit heapCust(int n) : n(0), max_n(n), position(n, NULLINDEX), elements(n)
         {
 
         }
 
-        heap() = default;
+        heapCust() = default;
 
-        // Size of the heap.
+        // Size of the heapCust.
         [[nodiscard]] inline int size() const
         {
             return n;
@@ -169,58 +169,6 @@ namespace benchmark
             }
         }
 
-        inline void extract_min_rand(Label *label)
-        {
-            assert(!empty());
-
-            /* randomly select one with the lowest key */
-            int i = 0, j = 0;
-            vector<int> pool;
-
-            int lowestKey = elements[0].length;
-            while (elements[j].length <= lowestKey && j < n)
-            {
-                pool.push_back(j);
-                j++;
-            }
-
-            if (pool.size() > 1)
-            {
-                boost::random::random_device rand_dev;
-                boost::random::mt19937 generator(rand_dev());
-                boost::random::uniform_int_distribution<> distr(0, pool.size());
-                i = distr(generator);
-            }
-
-            Label &front = elements[i];
-
-            // Assign element and length.
-            label->length = front.length;
-            label->node_id = front.node_id;
-            label->previous = front.previous;
-
-            // replace elements[0] by elements[i]
-            if (i != 0)
-            {
-                Label &temp = elements[0];
-                elements[0] = front;
-                elements[i] = temp;
-
-                position[elements[0].node_id] = position[front.node_id];
-                position[front.node_id] = 0;
-            }
-
-            // Replace elements[0] by last element.
-            position[front.node_id] = NULLINDEX;
-            --n;
-            if (!empty())
-            {
-                front = elements[n];
-                position[front.node_id] = 0;
-                shift_down(0);
-            }
-        }
-
         inline key_t top()
         {
             assert(!empty());
@@ -241,7 +189,7 @@ namespace benchmark
             return front.node_id;
         }
 
-        // Update an element of the heap.
+        // Update an element of the heapCust.
         inline void update(Label *label)
         {
             const NodeId element = label->node_id;
@@ -269,7 +217,7 @@ namespace benchmark
         }
 
 
-        // Clear the heap.
+        // Clear the heapCust.
         inline void clear()
         {
             for (NodeId i = 0; i < n; ++i)
@@ -291,7 +239,7 @@ namespace benchmark
         }
 
 
-        // Test whether an node_id is contained in the heap.
+        // Test whether an node_id is contained in the heapCust.
         [[nodiscard]] inline bool contains(const NodeId node_id) const
         {
             return position[node_id] != NULLINDEX;
@@ -350,7 +298,7 @@ namespace benchmark
             }
         }
 
-        // Swap two elements in the heap.
+        // Swap two elements in the heapCust.
         inline void swap(const int i, const int j)
         {
             Label &el_i = elements[i];
@@ -369,7 +317,7 @@ namespace benchmark
 
     private:
 
-        // Number of elements in the heap.
+        // Number of elements in the heapCust.
         int n{};
 
         // Number of maximal elements.

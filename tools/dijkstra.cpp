@@ -14,7 +14,7 @@
 pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source, NodeId target)
 {
     unsigned int count = 0;
-    benchmark::heap<2> heap(rN->numNodes + 1);
+    benchmark::heapCust<2> heap(rN->numNodes + 1);
 
     Path resPath;
     int newLength = 0;
@@ -76,7 +76,7 @@ pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source,
 void dijkstra_label(RoadNetwork *rN, NodeId source, NodeId target, Label *curLabel)
 {
     unsigned int count = 0;
-    benchmark::heap<2> heap(rN->numNodes + 1);
+    benchmark::heapCust<2> heap(rN->numNodes + 1);
 
     int newLength = 0;
     EdgeList::iterator iterAdj;
@@ -120,19 +120,19 @@ void dijkstra_label(RoadNetwork *rN, NodeId source, NodeId target, Label *curLab
             }
         }
     }
+    curLabel = nullptr;
 }
 
 
 void dijkstra_label_heu(RoadNetwork *rN, NodeId source, NodeId target, Label *curLabel)
 {
     unsigned int count = 0;
-    benchmark::heap<2> heap(rN->numNodes + 1);
+    benchmark::heapCust<2> heap(rN->numNodes + 1);
 
     int newLength = 0;
     EdgeList::iterator iterAdj;
     vector<int> distances(rN->numNodes + 1, INT_MAX);
     vector<bool> visited(rN->numNodes + 1);
-    Label *targetLabel = nullptr;
     distances[target] = 0;
     auto *srcLabel = new Label(target, newLength);
     heap.update(srcLabel);
@@ -145,7 +145,9 @@ void dijkstra_label_heu(RoadNetwork *rN, NodeId source, NodeId target, Label *cu
         distances[curLabel->node_id] = curLabel->length;
 
         if (curLabel->node_id == source)
+        {
             return;
+        }
 
         if (++count == rN->numNodes)
             break;
@@ -170,6 +172,7 @@ void dijkstra_label_heu(RoadNetwork *rN, NodeId source, NodeId target, Label *cu
             }
         }
     }
+    curLabel = nullptr;
 }
 
 int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target)
@@ -177,7 +180,7 @@ int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target)
     int newLength = 0, resDist = -1;
     EdgeList::iterator iterAdj;
 
-    benchmark::heap<2> heap(rN->numNodes + 1);
+    benchmark::heapCust<2> heap(rN->numNodes + 1);
     vector<int> distances(rN->numNodes + 1, INT_MAX);
     vector<bool> visited(rN->numNodes + 1);
     auto *curLabel = new Label(-1, -1);

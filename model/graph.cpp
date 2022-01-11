@@ -16,9 +16,9 @@ Copyright (c) 2017 Theodoros Chondrogiannis
 RoadNetwork::RoadNetwork(const char *filename)
 {
     ifstream infile(filename);
-    NodeId lnode, rnode;
+    NodeId lnode, rnode, edgeId;
     int line_cnt = 0, w = -1;
-    while (infile >> lnode >> rnode >> w)
+    while (infile >> edgeId >> lnode >> rnode >> w)
     {
         line_cnt += 1;
         if (line_cnt == 1)
@@ -27,14 +27,15 @@ RoadNetwork::RoadNetwork(const char *filename)
             this->numEdges = rnode;
             this->adjListOut = vector<EdgeList>(this->numNodes + 1);
             this->adjListInc = vector<EdgeList>(this->numNodes + 1);
-
             this->adjListInHeu = vector<EdgeList>(this->numNodes + 1);
         } else
         {
-            this->adjListOut[lnode].insert(make_pair(rnode, w));
-            this->adjListInc[rnode].insert(make_pair(lnode, w));
+            if (lnode > this->numNodes || rnode > this->numNodes)
+                continue;
 
-            this->adjListInHeu[rnode].insert(make_pair(lnode, w));
+            this->adjListOut[lnode][rnode] = w;
+            this->adjListInc[rnode][lnode] = w;
+            this->adjListInHeu[rnode][lnode] = w;
         }
     }
 
@@ -45,9 +46,9 @@ RoadNetwork::RoadNetwork(const char *filename)
 RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
 {
     ifstream infile(filename);
-    NodeId lnode, rnode;
+    NodeId lnode, rnode, edgeId;
     int line_cnt = 0, w = -1;
-    while (infile >> lnode >> rnode >> w)
+    while (infile >> edgeId >> lnode >> rnode >> w)
     {
         line_cnt += 1;
         if (line_cnt == 1)
@@ -60,10 +61,13 @@ RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
             this->adjListInHeu = vector<EdgeList>(this->numNodes + 1);
         } else
         {
-            this->adjListOut[lnode].insert(make_pair(rnode, w));
-            this->adjListInc[rnode].insert(make_pair(lnode, w));
+            if (lnode > this->numNodes || rnode > this->numNodes)
+                continue;
 
-            this->adjListInHeu[rnode].insert(make_pair(lnode, w));
+            this->adjListOut[lnode][rnode] = w;
+            this->adjListInc[rnode][lnode] = w;
+
+            this->adjListInHeu[rnode][lnode] = w;
         }
     }
     infile.close();
