@@ -9,41 +9,30 @@
 void Traffic::writeSetting(const basic_string<char> &path) const
 {
     ofstream ofstream(path);
-    ofstream << "r1 " << r1 << endl;
-    ofstream << "r2 " << r2 << endl;
-    ofstream << "sCenter " << sCenter.second << "," << sCenter.first << endl;
-    ofstream << "sCenter " << tCenter.second << "," << tCenter.first << endl;
+    ofstream << "no. requests: " << requestIdMap.size() << endl;
     ofstream.close();
 }
 
 
-void Traffic::getSourcesInR(Coord &center, int r)
+vector<NodeId> Traffic::getNodesInR(Coord &center, int r)
 {
+    vector<NodeId> v;
     for (NodeId i = 0; i <= rN.numNodes; i++)
     {
         if (RoadNetwork::distance(center, rN.coords[i]) <= r)
         {
-            sources.push_back(i);
+            v.emplace_back(i);
         }
     }
+
+    return v;
 }
 
 
-void Traffic::getTargetsInR(Coord &center, int r)
-{
-    for (NodeId i = 0; i <= rN.numNodes; i++)
-    {
-        if (RoadNetwork::distance(center, rN.coords[i]) <= r)
-        {
-            targets.push_back(i);
-        }
-    }
-}
-
-void Simulation::basicSimulation()
+int Simulation::onePass()
 {
     /**
-     * Based on base cost
+     * Based on base cost // first iteration
      */
     clearTraffic();
 
@@ -51,7 +40,7 @@ void Simulation::basicSimulation()
     for (RequestId req = 0; req < traffic.requestIdMap.size(); req++)
     {
         auto *sourceLabel = new Label();
-        dijkstra_label(&traffic.rN, traffic.requestIdMap[req].first, traffic.requestIdMap[req].second, sourceLabel);
+        dijkstra_label_heu(&traffic.rN, traffic.requestIdMap[req].first, traffic.requestIdMap[req].second, sourceLabel);
 
         trajectories[req] = sourceLabel;
         assert(sourceLabel != nullptr);
@@ -60,52 +49,48 @@ void Simulation::basicSimulation()
         newOverflowEdges.insert(s.begin(), s.end());
     }
 
-    for (const auto &edge: newOverflowEdges)
-    {
-        for (const auto &request: edgeFlowDist[edge.first][edge.second].requests)
-        {
-            reqOverflowEdge[request] += 1;
-            requestHeap.update(request, reqOverflowEdge[request]);
-        }
-    }
     overflowEdgeCnt = newOverflowEdges.size();
-    evaluateTotalCost();
+    return getCost();
 }
 
-vector<RequestId> Simulation::reqsByCollCnt()
-{
-    vector<RequestId> reqs;
-    RequestId request;
-    int overflowCnt;
 
-    while (overflowEdgeCnt > 0 && !requestHeap.empty())
+int Simulation::basicSimulation()
+{
+    // do not voluntary to adjust edge weight, just update edge weight based on previous traffic
+    int cost = 0;
+    while (true)
     {
-        requestHeap.extract_max(request, overflowCnt);
-        reqOverflowEdge[request] = 0;
-        set<Edge> newUnderflowEdges = delTrajectoryInRN(request);
-        // update number of collisions of each request
-        for (const auto &changeEdge: newUnderflowEdges)
+        for (RequestId req = 0; req < traffic.requestIdMap.size(); req++)
         {
-            for (const auto &relatedReq: edgeFlowDist[changeEdge.first][changeEdge.second].requests)
-            {
-                reqOverflowEdge[relatedReq] -= 1;
-                requestHeap.update(relatedReq, reqOverflowEdge[relatedReq]);
-            }
+            auto *sourceLabel = new Label();
+            dijkstra_label_heu(&traffic.rN, traffic.requestIdMap[req].first, traffic.requestIdMap[req].second, sourceLabel);
+
+            trajectories[req] = sourceLabel;
+            assert(sourceLabel != nullptr);
         }
 
-        overflowEdgeCnt -= newUnderflowEdges.size();
-        reqs.push_back(request);
+        updateTrafficStat();
+        updateEdgeCost();
+        int curCost = getCost();
+        if (cost > curCost)
+            break;
+
+        cost = curCost;
     }
-    return reqs;
+
+    return cost;
 }
 
-void Simulation::reroutePartialReqsByBlocking()
+int Simulation::reroutePartialReqsByBlocking()
 {
     clearTraffic();
 
+    vector<int> reqOverflowEdge(traffic.rN.numNodes + 1);
+    benchmark::heap<2, int, RequestId> requestHeap(traffic.rN.numNodes + 1);
+
     vector<RequestId> request;
     for (RequestId i = 0; i < traffic.requestIdMap.size(); i++)
-        request.push_back(i);
+        request.emplace_back(i);
 
     while (true)
     {
@@ -119,18 +104,61 @@ void Simulation::reroutePartialReqsByBlocking()
 
         for (const auto &changeEdge: newOverflowEdges)
         {
-            for (const auto &relatedReq: edgeFlowDist[changeEdge.first][changeEdge.second].requests)
+            for (const auto &relatedReq: trafficStat[changeEdge.first][changeEdge.second].requests)
             {
                 reqOverflowEdge[relatedReq] += 1;
                 requestHeap.update(relatedReq, reqOverflowEdge[relatedReq]);
             }
         }
 
-        request = reqsByCollCnt();
+        request = reqsByCollCnt(reqOverflowEdge, requestHeap);
         assert(overflowEdgeCnt == 0);
+        updateEdgeCost();
     }
 
-    evaluateTotalCost();
+    return getCost();
+}
+
+vector<RequestId>
+Simulation::reqsByCollCnt(vector<int> &reqOverflowEdge, benchmark::heap<2, int, RequestId> &requestHeap)
+{
+    vector<RequestId> reqs;
+    RequestId request;
+    int overflowCnt;
+
+    while (overflowEdgeCnt > 0 && !requestHeap.empty())
+    {
+        requestHeap.extract_max(request, overflowCnt);
+        reqOverflowEdge[request] = 0;
+
+        // delete the selected path from traffic
+        set<Edge> newUnderflowEdges = delTrajectoryInRN(request); // unable to update temporal flow
+
+        // update number of collisions of each request
+        for (const auto &changeEdge: newUnderflowEdges)
+        {
+            for (const auto &relatedReq: trafficStat[changeEdge.first][changeEdge.second].requests)
+            {
+                reqOverflowEdge[relatedReq] -= 1;
+                requestHeap.update(relatedReq, reqOverflowEdge[relatedReq]);
+            }
+        }
+
+        overflowEdgeCnt -= newUnderflowEdges.size();
+        reqs.emplace_back(request);
+    }
+    return reqs;
+}
+
+void Simulation::blockOverflowEdges(set<Edge> &newOverflowEdges)
+{
+    for (const auto &edge: newOverflowEdges)
+    {
+        if (trafficStat[edge.first][edge.second].totalFlow > traffic.capacity)
+        {
+            traffic.rN.adjListInHeu[edge.second].erase(edge.first);
+        }
+    }
 }
 
 set<Edge> Simulation::heuBasedSimulation(vector<RequestId> &requests)
@@ -151,27 +179,30 @@ set<Edge> Simulation::heuBasedSimulation(vector<RequestId> &requests)
     return newOverflowEdges;
 }
 
-void Simulation::blockOverflowEdges(set<Edge> &newOverflowEdges)
-{
-    for (const auto &edge: newOverflowEdges)
-    {
-        if (edgeFlowDist[edge.first][edge.second].flow > traffic.capacity)
-        {
-            traffic.rN.adjListInHeu[edge.second].erase(edge.first);
-        }
-    }
-}
-
 set<Edge> Simulation::addTrajectoryInRN(RequestId request)
 {
     set<Edge> newOverflowEdges;
     auto *curLabel = trajectories[request];
+    int totalTime = curLabel->length;
+
     while (curLabel->previous != nullptr)
     {
-        edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].requests.insert(request);
-        edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].flow += 1;
+        traversedEdges.insert(make_pair(curLabel->node_id, curLabel->previous->node_id));
 
-        if (edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].flow == traffic.capacity + 1)
+        trafficStat[curLabel->node_id][curLabel->previous->node_id].requests.insert(request);
+        trafficStat[curLabel->node_id][curLabel->previous->node_id].totalFlow += 1;
+
+        int timeInt = (totalTime - curLabel->length) / timeResl;
+        assert(timeInt < timeInts);
+        trafficStat[curLabel->node_id][curLabel->previous->node_id].tempFlow[timeInt] += 1;
+        if (trafficStat[curLabel->node_id][curLabel->previous->node_id].tempFlow[timeInt]
+            > trafficStat[curLabel->node_id][curLabel->previous->node_id].maxTempFlow)
+        {
+            trafficStat[curLabel->node_id][curLabel->previous->node_id].maxTempFlow =
+                    trafficStat[curLabel->node_id][curLabel->previous->node_id].tempFlow[timeInt];
+        }
+
+        if (trafficStat[curLabel->node_id][curLabel->previous->node_id].totalFlow == traffic.capacity + 1)
         {
             newOverflowEdges.insert(make_pair(curLabel->node_id, curLabel->previous->node_id));
         }
@@ -186,12 +217,33 @@ set<Edge> Simulation::delTrajectoryInRN(RequestId request)
     set<Edge> newUnderflowEdges;
 
     auto *curLabel = trajectories[request];
+    int totalTime = curLabel->length;
+
     while (curLabel->previous != nullptr)
     {
-        edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].requests.erase(request);
-        edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].flow -= 1;
+        trafficStat[curLabel->node_id][curLabel->previous->node_id].requests.erase(request);
 
-        if (edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].flow == traffic.capacity)
+        assert(trafficStat[curLabel->node_id][curLabel->previous->node_id].totalFlow > 0);
+        trafficStat[curLabel->node_id][curLabel->previous->node_id].totalFlow -= 1;
+
+        if (trafficStat[curLabel->node_id][curLabel->previous->node_id].totalFlow == 0)
+        {
+            traversedEdges.erase(make_pair(curLabel->node_id, curLabel->previous->node_id));
+        }
+
+        int timeInt = (totalTime - curLabel->length) / timeResl;
+        assert(timeInt < timeInts); // 1000 is the number of time intervals
+        assert(trafficStat[curLabel->node_id][curLabel->previous->node_id].tempFlow[timeInt] > 0);
+
+        if (trafficStat[curLabel->node_id][curLabel->previous->node_id].tempFlow[timeInt] ==
+            trafficStat[curLabel->node_id][curLabel->previous->node_id].maxTempFlow)
+        {
+            trafficStat[curLabel->node_id][curLabel->previous->node_id].maxTempFlow -= 1;
+        }
+
+        trafficStat[curLabel->node_id][curLabel->previous->node_id].tempFlow[timeInt] -= 1;
+
+        if (trafficStat[curLabel->node_id][curLabel->previous->node_id].totalFlow == traffic.capacity)
         {
             newUnderflowEdges.insert(make_pair(curLabel->node_id, curLabel->previous->node_id));
         }
@@ -202,65 +254,81 @@ set<Edge> Simulation::delTrajectoryInRN(RequestId request)
     return newUnderflowEdges;
 }
 
-float Simulation::trajCostFun1(Label *curLabel)
-{
-    float cost = 0;
-    assert(curLabel != nullptr);
-    while (curLabel->previous != nullptr)
-    {
-        int collision = edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].flow - 1;
-        if (collision > 1)
-        {
-            int base = traffic.rN.getEdgeWeight(curLabel->node_id, curLabel->previous->node_id);
-            cost += base * (1 + 0.15 * pow(
-                    edgeFlowDist[curLabel->node_id][curLabel->previous->node_id].flow / traffic.capacity, 4));
-        }
-        curLabel = curLabel->previous;
-    }
-    return cost;
-}
-
-
-void Simulation::evaluateTotalCost()
-{
-    for (const auto &sourceLabel: trajectories)
-    {
-        costs += trajCostFun1(sourceLabel);
-    }
-}
-
-float Simulation::getCost()
-{
-    float c = costs;
-    return c;
-}
-
 void Simulation::clearTraffic()
 {
     overflowEdgeCnt = 0;
-    costs = 0;
 
     for (int req = 0; req < traffic.requestIdMap.size(); req++)
     {
         trajectories[req] = nullptr;
-        reqOverflowEdge[req] = 0;
     }
 
-    for (NodeId lnode = 0; lnode <= traffic.rN.numNodes; lnode++)
+    vector<int> v(timeInts, 0);
+    for (const auto edge: traversedEdges)
     {
-        for (const auto &rnodeW: traffic.rN.adjListOut[lnode])
+        set<RequestId> s;
+        trafficStat[edge.first][edge.second].requests.swap(s);
+        trafficStat[edge.first][edge.second].totalFlow = 0;
+        copy(v.begin(), v.end(), trafficStat[edge.first][edge.second].tempFlow.begin());
+        trafficStat[edge.first][edge.second].maxTempFlow = INT_MIN;
+    }
+}
+
+void Simulation::updateTrafficStat()
+{
+    clearTraffic();
+
+    for (const auto label: trajectories)
+    {
+        NodeId nextId = label->node_id;
+        int totalTime = label->length;
+        while (label->previous != nullptr)
         {
-            edgeFlowDist[lnode][rnodeW.first].requests.clear();
-            edgeFlowDist[lnode][rnodeW.first].flow = 0;
+            int timeInt = (totalTime - label->length) / timeResl;
+
+            assert(timeInt < timeInts); // 1000 is the number of time intervals
+            trafficStat[label->node_id][label->previous->node_id].tempFlow[timeInt] += 1;
+
+            if (trafficStat[label->node_id][label->previous->node_id].tempFlow[timeInt]
+                > trafficStat[label->node_id][label->previous->node_id].maxTempFlow)
+            {
+                trafficStat[label->node_id][label->previous->node_id].maxTempFlow =
+                        trafficStat[label->node_id][label->previous->node_id].tempFlow[timeInt];
+            }
+
+            traversedEdges.insert(make_pair(label->node_id, label->previous->node_id));
         }
+
+    }
+}
+
+void Simulation::updateEdgeCost()
+{
+    // update heuweight based on max temp edgeflow
+    for (const auto &edge: traversedEdges)
+    {
+        int base = traffic.rN.adjListOut[edge.first][edge.second];
+        traffic.rN.adjListInHeu[edge.second][edge.first] =
+                trajCostFun1(const_cast<Edge &>(edge), trafficStat[edge.first][edge.second].maxTempFlow);
+    }
+}
+
+int Simulation::trajCostFun1(Edge &edge, int edgeFlow)
+{
+    int base = traffic.rN.adjListOut[edge.first][edge.second];
+    return base * (1 + 0.15 * pow(edgeFlow / traffic.capacity, 4));
+}
+
+
+int Simulation::getCost()
+{
+    int cost = 0;
+    for (const auto &label: trajectories)
+    {
+        cost += label->length;
     }
 
-    RequestId r;
-    int cnt;
-    while (!requestHeap.empty())
-    {
-        requestHeap.extract_max(r, cnt);
-    }
+    return cost;
 }
 
 void Simulation::writeTrajectories(const basic_string<char> &path)
@@ -293,7 +361,7 @@ void Simulation::writeEdgeFlowDist(const basic_string<char> &path)
     {
         for (const auto &rnodeW: traffic.rN.adjListOut[lnode])
         {
-            ofstream << edgeFlowDist[lnode][rnodeW.first].flow << endl;
+            ofstream << trafficStat[lnode][rnodeW.first].totalFlow << endl;
         }
     }
 
@@ -304,11 +372,12 @@ void Simulation::writeCollision(const basic_string<char> &path, vector<Edge> &ov
 {
     ofstream ofstream(path);
     float totalColCnt = 0;
-    for (const auto edge:overflowEdges)
+    for (const auto edge: overflowEdges)
     {
-        totalColCnt += edgeFlowDist[edge.first][edge.second].flow;
-        ofstream << edgeFlowDist[edge.first][edge.second].flow << endl;
+        totalColCnt += trafficStat[edge.first][edge.second].totalFlow;
+        ofstream << trafficStat[edge.first][edge.second].totalFlow << endl;
     }
 
-    ofstream << totalColCnt/overflowEdges.size() << endl;
+    ofstream << totalColCnt / overflowEdges.size() << endl;
 }
+

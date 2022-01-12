@@ -418,7 +418,7 @@ public:
     void enter(T *new_mbr, int new_page, int new_num_data, RSTNode<Data, T> *child); //enter-in one data
     int choose_subtree(T *mbr); //choose optimal sub tree to insert
     INTERSECT_RESULT
-    intersect_subtree(int sub_id, T *mbr); //test the relationshiop between MBR of subtree and a given MBR
+    intersect_subtree(int sub_id, T *mbr); //onePass the relationshiop between MBR of subtree and a given MBR
     RSTNode<Data, T> *get_child(int sub_id); //get the actual child node and store it
 
     //overriding
@@ -918,8 +918,8 @@ int RSTNonLeafNode<Data, T>::choose_subtree(T *mbr)
     int result_id;
     T *mbr_buf = new T[2 * this->dim];
 
-    //first we test the relationship between given mbr and the subtrees
-    //test if mbr is inside some subtree or not
+    //first we onePass the relationship between given mbr and the subtrees
+    //onePass if mbr is inside some subtree or not
     int inside_count = 0;
     vector<int> inside_id;
     for (int i = 0; i < this->entry_num; i++)
@@ -1314,7 +1314,7 @@ INSERT_RESULT RSTNonLeafNode<Data, T>::insert(Data<T> *d, RSTNode<Data, T> **sn)
         enter(mbr, new_sub->page_id, new_sub->get_num_of_data(), new_sub);
 
         //----------this is a modification to original code
-        //we will test if this is correct
+        //we will onePass if this is correct
         if (this->entry_num == (this->capacity - 1)) //back to original
         {
             //if the node is nearly full
@@ -1622,7 +1622,7 @@ INSERT_RESULT RSTLeafNode<Data, T>::insert(Data<T> *d, RSTNode<Data, T> **sn)
     this->dirty = true;
 
     //----------this is a modification to original code
-    //we will test if this is correct
+    //we will onePass if this is correct
     if (this->entry_num == (this->capacity - 1)) //back to original
     {
         if (this->the_tree->reinsrt_lvl[0] == false)

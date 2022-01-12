@@ -230,7 +230,7 @@ void test(int dim, int page_len, int data_num)
 //    int page_len = cfg.GetConfigInt("page_len");;
 //    int data_num = cfg.GetConfigInt("data_num");;
 //
-//    test(dim, page_len, data_num);
+//    onePass(dim, page_len, data_num);
 //
 //    return 0;
 //}

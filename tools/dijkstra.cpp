@@ -11,6 +11,7 @@
  *
  */
 
+
 pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source, NodeId target)
 {
     unsigned int count = 0;
@@ -122,7 +123,6 @@ void dijkstra_label(RoadNetwork *rN, NodeId source, NodeId target, Label *curLab
     }
     curLabel = nullptr;
 }
-
 
 void dijkstra_label_heu(RoadNetwork *rN, NodeId source, NodeId target, Label *curLabel)
 {

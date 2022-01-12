@@ -24,7 +24,7 @@ void PageFile::Construct(const char *name, int p_len, const char *path, c_policy
 	if((pol==C_FULLMEM)||(pol==C_NO_CACHE)) cache_size=0;
 	else cache_size=c_size;
 
-	//test if we can find the file
+	//onePass if we can find the file
 	if(GenericTool::JudgeExistence(fname, force_new))
 	{
 		//file exists, then we read parameter from file

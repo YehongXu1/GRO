@@ -9,21 +9,19 @@ int main()
 {
     string map = "/Users/xyh/Desktop/traffic-assignment/data/BJ_RoadIDWeight.txt";
     string coords = "/Users/xyh/Desktop/traffic-assignment/data/BJ_NodeIDLonLat.txt";
+    string odpath = "/Users/xyh/Desktop/traffic-assignment/data/BJ_ODs.txt";
     string path = "/Users/xyh/Desktop/traffic-assignment/output/exp1/";
 
     RoadNetwork rN(map.c_str(), coords.c_str());
-
-    /* initialization */
-//    int radius = 500;
-//    Coord sCenter = make_pair(40.803655, -73.919705);
-//    Coord tCenter = make_pair(40.950238, -73.884295);
-//    Traffic traffic(rN, sCenter, tCenter, radius, radius, 5);
-//    traffic.writeSetting(path + "setting.txt");
-
-//    Simulation simulation(traffic);
-//    simulation.basicSimulation();
+    Traffic traffic(rN, odpath, 5);
+    cout << 1;
+//    /* initialization */
+    traffic.writeSetting(path + "setting.txt");
 //
-//    cout << simulation.getCost() << endl;
+    Simulation simulation(traffic, 1000, 100);
+    simulation.basicSimulation();
+
+    cout << simulation.getCost() << endl;
 //
 //    simulation.reroutePartialReqsByBlocking();
 //    cout << simulation.getCost() << endl;

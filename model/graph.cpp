@@ -48,13 +48,13 @@ RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
     ifstream infile(filename);
     NodeId lnode, rnode, edgeId;
     int line_cnt = 0, w = -1;
-    while (infile >> edgeId >> lnode >> rnode >> w)
+    while (infile >> lnode >> rnode >> edgeId >> w)
     {
         line_cnt += 1;
         if (line_cnt == 1)
         {
-            this->numNodes = lnode;
-            this->numEdges = rnode;
+            this->numNodes = rnode;
+            this->numEdges = edgeId;
             this->adjListOut = vector<EdgeList>(this->numNodes + 1);
             this->adjListInc = vector<EdgeList>(this->numNodes + 1);
 
