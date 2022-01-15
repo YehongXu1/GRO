@@ -250,23 +250,21 @@ namespace benchmark
     };
 }
 
-typedef pair<int, int> Interval;
-typedef int RequestId;
-
 class Traffic
 {
 public:
     unordered_map<RequestId, pair<NodeId, NodeId>> requestIdMap; // request's s-t
     RoadNetwork &rN;
-    int capacity{};
+    int capacity{}, reqNo = 1000;
 
     Traffic(RoadNetwork &rN, Coord &sCenter, Coord &tCenter, int r1, int r2, int capacity) : rN(rN)
     {
         this->capacity = capacity;
+        this->reqNo = reqNo;
         unordered_map<NodeId, int> endPointKeyMap;
 
         vector<NodeId> sources = getNodesInR(sCenter, r1);
-        vector<NodeId> targets = getNodesInR(tCenter, r1);
+        vector<NodeId> targets = getNodesInR(tCenter, r2);
         for (int i = 0; i < sources.size(); i++)
         {
             for (int j = 0; j < targets.size(); j++)
@@ -275,12 +273,14 @@ public:
                 requestIdMap[reqId] = make_pair(sources[i], targets[j]);
             }
         }
+
+        this->reqNo = requestIdMap.size();
     }
 
-    Traffic(RoadNetwork &rN, string &OdPath, int capacity) : rN(rN)
+    Traffic(RoadNetwork &rN, string &OdPath, int capacity, int reqNo) : rN(rN)
     {
-        int j = 100; // control number of requests
         this->capacity = capacity;
+
         RequestId id = 0;
         NodeId origin, dest;
         ifstream infile(OdPath);
@@ -289,29 +289,28 @@ public:
         {
             requestIdMap[id] = make_pair(origin, dest);
             id += 1;
-            if (id == j)
+            if (id == reqNo)
                 break;
         }
-        cout << requestIdMap.size();
         infile.close();
+
+        for (int k = 1; k < 10; k++)
+        {
+            for (RequestId req = 0; req < reqNo; req++)
+            {
+                RequestId requestId = k * reqNo + req;
+                requestIdMap[requestId] = requestIdMap[req];
+            }
+        }
+
+        this->reqNo = requestIdMap.size();
     }
 
-
-    void writeSetting(const basic_string<char> &path) const;
+    void writeSetting(const basic_string<char> &path, const basic_string<char> &rNName) const;
 
 private:
     vector<NodeId> getNodesInR(Coord &center, int r);
 
-};
-
-struct EdgeFlowInfo
-{
-    set<RequestId> requests;
-    int totalFlow = 0, weight = -1, maxTempFlow = INT_MIN, tempWeight = INT_MAX; // total totalFlow
-    vector<int> tempFlow;
-
-    EdgeFlowInfo()
-    = default;
 };
 
 class Simulation
@@ -320,65 +319,70 @@ class Simulation
 public:
     explicit Simulation(Traffic &traffic, int timeInts, int timeResl) : traffic(traffic)
     {
-        this->timeInts = timeInts;
-        this->timeResl = timeResl;
+        this->timeIntNum = timeInts;
+        this->timeReslo = timeResl;
 
         EdgeList::iterator iterAdj;
-        trafficStat.reserve(traffic.rN.numNodes + 1);
+        trafficStat.resize(traffic.rN.numNodes + 1);
         for (NodeId i = 0; i <= traffic.rN.numNodes; i++)
         {
             for (iterAdj = traffic.rN.adjListOut[i].begin();
                  iterAdj != traffic.rN.adjListOut[i].end(); iterAdj++)
             {
                 trafficStat[i][iterAdj->first].tempFlow.resize(timeInts, 0);
+                trafficStat[i][iterAdj->first].tempReqs.resize(timeInts);
+                trafficStat[i][iterAdj->first].tempWeight.resize(timeInts, iterAdj->second);
                 trafficStat[i][iterAdj->first].weight = iterAdj->second;
             }
         }
 
-        trajectories.reserve(traffic.requestIdMap.size());
+        trajectories.resize(traffic.requestIdMap.size(), nullptr);
     }
 
-    int reroutePartialReqsByBlocking();
+    long long int test();
 
-    int onePass();
+    long long int rerouteAllPaths();
 
-    int basicSimulation();
+    long long int rerouteAllBlockETs();
+
+    long long int reroutePartialBlockETs(double frac);
 
     void writeTrajectories(const basic_string<char> &path);
 
     void writeEdgeFlowDist(const basic_string<char> &path);
 
-    int getCost();
+    long long int getCost();
 
 private:
     Traffic &traffic;
     vector<Label *> trajectories;
     vector<unordered_map<NodeId, EdgeFlowInfo>> trafficStat;
-    set<Edge> traversedEdges;
+    unordered_set<Edge, hash_edge> traversedEdges;
 
-    int overflowEdgeCnt = 0, timeInts = 1000, timeResl = 100;
+    int timeIntNum = 1000, timeReslo = 100;
 
-    int trajCostFun1(Edge &edge, int edgeFlow);
+    int trajCostFun1(int baseCost, int edgeFlow);
 
-    set<Edge> heuBasedSimulation(vector<RequestId> &request);
+    // return overflow ETs resulted by adding this path to traffic
+    void addTrajectoryInRN(RequestId request, set<pair<Edge, TimeIntIdx>> & overflowETs);
 
-    void blockOverflowEdges(set<Edge> &newOverflowEdges);
+    unordered_set<RequestId> selectReqsBasedOnETCnt(set<pair<Edge, TimeIntIdx>> & overflowETs,
+            vector<int> &reqCNT, benchmark::heap<2, int, RequestId> &reqHeap, int unfixedNum, double frac);
 
-    // return edges become overflow
-    set<Edge> addTrajectoryInRN(RequestId request);
-
-    // return edges become underflow
-    set<Edge> delTrajectoryInRN(RequestId request);
-
-    void updateTrafficStat();
-
-    vector<RequestId> reqsByCollCnt(vector<int> &reqOverflowEdge, benchmark::heap<2, int, RequestId> &requestHeap);
+    // return ETs become underflow by due to removal of this request from traffic
+    vector<pair<Edge, TimeIntIdx>> delTrajectoryInRN(RequestId request);
 
     void clearTraffic();
 
     void writeCollision(const basic_string<char> &path, vector<Edge> &overflowEdges);
 
     void updateEdgeCost();
+
+    void blockOverflowETs(set<pair<Edge, TimeIntIdx>> &overflowETs);
+
+    void routing(unordered_set<RequestId> &reqs);
+
+    void blockOverflowETsRandom(set<pair<Edge, TimeIntIdx>> &overflowETs);
 };
 
 #endif //TRAFFIC_ASSIGNMENT_TRAFFIC_H

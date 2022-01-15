@@ -16,9 +16,9 @@ Copyright (c) 2017 Theodoros Chondrogiannis
 RoadNetwork::RoadNetwork(const char *filename)
 {
     ifstream infile(filename);
-    NodeId lnode, rnode, edgeId;
+    NodeId lnode, rnode;
     int line_cnt = 0, w = -1;
-    while (infile >> edgeId >> lnode >> rnode >> w)
+    while (infile >> lnode >> rnode >> w)
     {
         line_cnt += 1;
         if (line_cnt == 1)
@@ -46,15 +46,15 @@ RoadNetwork::RoadNetwork(const char *filename)
 RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
 {
     ifstream infile(filename);
-    NodeId lnode, rnode, edgeId;
-    int line_cnt = 0, w = -1;
-    while (infile >> lnode >> rnode >> edgeId >> w)
+    int lnode, rnode;
+    int line_cnt = 0, w = 0;
+    while (infile >> lnode >> rnode >> w)
     {
         line_cnt += 1;
         if (line_cnt == 1)
         {
-            this->numNodes = rnode;
-            this->numEdges = edgeId;
+            this->numNodes = lnode;
+            this->numEdges = rnode;
             this->adjListOut = vector<EdgeList>(this->numNodes + 1);
             this->adjListInc = vector<EdgeList>(this->numNodes + 1);
 
@@ -78,7 +78,7 @@ RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
     double lat, lon;
     while (infile2 >> nodeId >> lon >> lat)
     {
-        coords[nodeId] = make_pair(lat, lon);
+        coords[nodeId] = make_pair(lon, lat);
     }
     infile2.close();
 
@@ -103,7 +103,8 @@ void RoadNetwork::adjustWeight(NodeId lnode, NodeId rnode, int increment)
 
 bool operator==(const Edge &le, const Edge &re)
 {
-    return (le.first == re.first && le.second == re.second) || (le.second == re.first && le.first == re.second);
+//    return (le.v1 == re.v1 && le.v2 == re.v2) || (le.v2 == re.v1 && le.v1 == re.v2);
+    return le.first == re.first && le.second == re.second;
 }
 
 bool Path::containsEdge(Edge &e)
@@ -128,7 +129,7 @@ double Path::overlap_ratio(RoadNetwork *rN, Path &path2)
 
     for (unsigned int i = 0; i < path2.nodes.size() - 1; i++)
     {
-        Edge e = make_pair(path2.nodes[i], path2.nodes[i + 1]);
+        Edge e = Edge(path2.nodes[i], path2.nodes[i + 1]);
         if (this->containsEdge(e))
             sharedLength += rN->getEdgeWeight(path2.nodes[i], path2.nodes[i + 1]);
     }

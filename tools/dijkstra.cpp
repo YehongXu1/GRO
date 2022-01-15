@@ -1,4 +1,5 @@
 #include "tools.h"
+#include <random>
 
 /*
  *
@@ -124,18 +125,17 @@ void dijkstra_label(RoadNetwork *rN, NodeId source, NodeId target, Label *curLab
     curLabel = nullptr;
 }
 
-void dijkstra_label_heu(RoadNetwork *rN, NodeId source, NodeId target, Label *curLabel)
+void dijkstra_label_timedep(vector<unordered_map<NodeId, EdgeFlowInfo>> &trafficStat, int timeReslo, int timeIntNum,
+                            NodeId source, NodeId target, Label *curLabel)
 {
-    unsigned int count = 0;
-    benchmark::heapCust<2> heap(rN->numNodes + 1);
+    benchmark::heapCust<2> heap(trafficStat.capacity());
 
-    int newLength = 0;
-    EdgeList::iterator iterAdj;
-    vector<int> distances(rN->numNodes + 1, INT_MAX);
-    vector<bool> visited(rN->numNodes + 1);
-    distances[target] = 0;
-    auto *srcLabel = new Label(target, newLength);
-    heap.update(srcLabel);
+    int newTravelTime = 0;
+    unordered_map<NodeId, EdgeFlowInfo>::iterator iterAdj;
+    vector<int> distances(trafficStat.capacity(), INT_MAX);
+    vector<bool> visited(trafficStat.capacity());
+    distances[source] = 0;
+    heap.update(curLabel);
 
     while (!heap.empty())
     {
@@ -144,29 +144,31 @@ void dijkstra_label_heu(RoadNetwork *rN, NodeId source, NodeId target, Label *cu
         visited[curLabel->node_id] = true;
         distances[curLabel->node_id] = curLabel->length;
 
-        if (curLabel->node_id == source)
+        if (curLabel->node_id == target)
         {
             return;
-        }
-
-        if (++count == rN->numNodes)
-            break;
-
-        else
+        } else
         { // Expand search
             // For each incoming edge.
-            for (iterAdj = rN->adjListInHeu[curLabel->node_id].begin();
-                 iterAdj != rN->adjListInHeu[curLabel->node_id].end(); iterAdj++)
+            for (iterAdj = trafficStat[curLabel->node_id].begin();
+                 iterAdj != trafficStat[curLabel->node_id].end(); iterAdj++)
             {
-                if (visited[iterAdj->first])
-                    continue;
+                int timeInt = curLabel->length / timeReslo;
+                assert(timeInt < timeIntNum);
 
-                newLength = curLabel->length + iterAdj->second;
+//                cout << iterAdj->second.tempWeight[timeInt] << endl;
+                if (iterAdj->second.tempWeight[timeInt] == INT_MAX)
+                    continue; // this (e,t) is blocked
+
+                newTravelTime = curLabel->length + iterAdj->second.tempWeight[timeInt];
+
+                assert(newTravelTime >= 0 && newTravelTime < INT_MAX);
+
                 auto *newPrevious = new Label(curLabel);
-                if (distances[iterAdj->first] > newLength)
+                if (distances[iterAdj->first] > newTravelTime)
                 {
-                    auto *label = new Label(iterAdj->first, newLength, newPrevious);
-                    distances[iterAdj->first] = newLength;
+                    auto *label = new Label(iterAdj->first, newTravelTime, newPrevious);
+                    distances[iterAdj->first] = newTravelTime;
                     heap.update(label);
                 }
             }
@@ -221,4 +223,21 @@ int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target)
     }
 
     return resDist;
+}
+
+bool randomBool(int trialNum, double sucRateEachTrial)
+{
+    // sucRateEachTrial: prob not to add weight
+    random_device rd;
+    mt19937 gen(rd());
+    // give "true" sucRateEachTrial of the time
+    // give "false" (1-sucRateEachTrial) of the time
+    bernoulli_distribution d(sucRateEachTrial);
+    bool notToAddValue = true;
+    for (int i = 0; i < trialNum; i++)
+    {
+        notToAddValue = notToAddValue & d(gen);
+    }
+
+    return not notToAddValue;
 }

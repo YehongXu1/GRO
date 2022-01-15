@@ -46,7 +46,7 @@ Path astar_limited(RoadNetwork *rN, NodeId source, NodeId target, vector<int> &b
                 newLength = curLabel->length + iterAdj->second;
                 newLowerBound = newLength + bounds[iterAdj->first];
                 Label *newPrevious = curLabel;
-                Edge e(make_pair(curLabel->node_id, iterAdj->first));
+                Edge e(Edge(curLabel->node_id, iterAdj->first));
 
                 if (deletedEdges.find(e) != deletedEdges.end())
                     continue;

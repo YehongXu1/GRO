@@ -21,10 +21,36 @@
 using namespace std;
 
 typedef unsigned int NodeId;
+
 typedef pair<NodeId, NodeId> Edge;
-typedef pair<float, float> Coord; // lat, long
+
+struct hash_edge {
+    size_t operator()(const Edge& p) const
+    {
+        auto hash1 = hash<NodeId>{}(p.first);
+        auto hash2 = hash<NodeId>{}(p.second);
+        return hash1 ^ hash2;
+    }
+};
+
+
+
+typedef pair<float, float> Coord; // lon, lat
 
 typedef unordered_map<NodeId, int> EdgeList; // node_id, edge_weight
+typedef int RequestId;
+typedef int TimeIntIdx;
+
+struct EdgeFlowInfo
+{
+    vector<unordered_set<RequestId>> tempReqs;
+    int totalFlow = 0, weight = -1; // total totalFlow
+    vector<long int> tempFlow;
+    vector<long long int> tempWeight;
+
+    EdgeFlowInfo()
+    = default;
+};
 
 class RoadNetwork
 {
@@ -49,10 +75,10 @@ public:
 
     static float distance(Coord p1, Coord p2)
     {
-        float lat1 = p1.first;
-        float lon1 = p1.second;
-        float lat2 = p2.first;
-        float lon2 = p2.second;
+        float lon1 = p1.first;
+        float lat1 = p1.second;
+        float lon2 = p2.first;
+        float lat2 = p2.second;
         // Convert the latitudes
         // and longitudes
         // from degree to radians.

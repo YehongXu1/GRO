@@ -339,12 +339,13 @@ pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source,
 
 void dijkstra_label(RoadNetwork *rN, NodeId source, NodeId target, Label *curLabel);
 
-void dijkstra_label_heu(RoadNetwork *rN, NodeId source, NodeId target, Label *curLabel);
+void dijkstra_label_timedep(vector<unordered_map<NodeId, EdgeFlowInfo>> &trafficStat, int timeReslo, int timeIntNum,
+                            NodeId source, NodeId target, Label *curLabel);
 
 int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target);
 
 Path astar_limited(RoadNetwork *rN, NodeId source, NodeId target, vector<int> &bounds,
                    unordered_set<Edge, boost::hash<Edge>> &deletedEdges);
 
-
+bool randomBool(int trialNum, double sucRateEachTrial);
 #endif //TRAFFIC_ASSIGNMENT_TOOLS_H
