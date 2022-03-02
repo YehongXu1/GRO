@@ -12,11 +12,11 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_set>
-#include <boost/functional/hash.hpp>
-
 #include <unordered_map>
+#include <boost/functional/hash.hpp>
 #include <boost/random.hpp>
 #include <boost/nondet_random.hpp>
+#include <boost/shared_ptr.hpp>
 #include "../model/graph.h"
 
 using namespace std;
@@ -25,15 +25,19 @@ class Label
 {
 public:
     NodeId node_id;
-    int length;
+    long long int length = 0;
+    long long int heuLength = 0;
     int lowerBound;
     Label *previous;
+    Label *nextL = nullptr;
 
     Label()
     {
         this->node_id = -1;
         this->length = -1;
+        this->heuLength = -1;
         this->previous = nullptr;
+        this->nextL = nullptr;
         this->lowerBound = -1;
     }
 
@@ -42,8 +46,10 @@ public:
         // copy
         this->node_id = label->node_id;
         this->length = label->length;
+        this->heuLength = label->heuLength;
         this->previous = label->previous;
         this->lowerBound = label->lowerBound;
+        this->nextL = label->nextL;
     }
 
     Label(NodeId node_id, int length)
@@ -77,6 +83,16 @@ public:
         this->previous = previous;
         this->lowerBound = lowerBound;
     };
+
+    void copy(Label *label)
+    {
+        this->node_id = label->node_id;
+        this->length = label->length;
+        this->heuLength = label->heuLength;
+        this->nextL = label->nextL;
+        this->previous = label->previous;
+        this->lowerBound = label->lowerBound;
+    }
 };
 
 class MyComparator
@@ -115,26 +131,35 @@ namespace benchmark
 #define NULLINDEX 0xFFFFFFFF
 
     template<int log_k>
-    class heapCust
+    class heapDij
     {
 
     public:
+
+        // Expose types.
+
         // Some constants regarding the elements.
         //static const node_t NULLINDEX = 0xFFFFFFFF;
         static const int k = 1 << log_k;
 
-
-    public:
-
-        // Constructor of the heapCust.
-        explicit heapCust(int n) : n(0), max_n(n), position(n, NULLINDEX), elements(n)
+        // A struct defining a heap element.
+        struct element_t
         {
+            Label* label{};
 
+            element_t() : label() {}
+
+            explicit element_t(Label* label) : label(label){}
+        };
+
+        // Constructor of the heap.
+        explicit heapDij(int n) : n(0), max_n(n), elements(n), position(n, NULLINDEX)
+        {
         }
 
-        heapCust() = default;
+        heapDij() = default;
 
-        // Size of the heapCust.
+        // Size of the heap.
         [[nodiscard]] inline int size() const
         {
             return n;
@@ -146,83 +171,79 @@ namespace benchmark
             return size() == 0;
         }
 
-        // Extract min node_id.
-        inline void extract_min(Label *label)
+        // Extract min element.
+        inline void extract_min(Label * &inputLabel)
         {
             assert(!empty());
 
-            Label &front = elements[0];
+            element_t &front = elements[0];
 
-            // Assign element and length.
-            label->length = front.length;
-            label->node_id = front.node_id;
-            label->previous = front.previous;
+            // Assign element and key.
+            inputLabel = front.label;
 
             // Replace elements[0] by last element.
-            position[front.node_id] = NULLINDEX;
+            position[front.label->node_id] = NULLINDEX;
             --n;
             if (!empty())
             {
                 front = elements[n];
-                position[front.node_id] = 0;
+                position[front.label->node_id] = 0;
                 shift_down(0);
             }
         }
 
-        inline key_t top()
+        inline Label* top()
         {
             assert(!empty());
 
-            Label &front = elements[0];
+            element_t &front = elements[0];
 
-            return front.length;
+            return front.label;
 
         }
 
-        inline NodeId top_value()
+        inline int top_value()
         {
 
             assert(!empty());
 
-            Label &front = elements[0];
+            element_t &front = elements[0];
 
-            return front.node_id;
+            return front.label->heuLength;
         }
 
-        // Update an element of the heapCust.
+        // Update an element of the heap.
         inline void update(Label *label)
         {
-            const NodeId element = label->node_id;
-            const int key = label->length;
-            if (position[element] == NULLINDEX)
+            if (position[label->node_id] == NULLINDEX)
             {
-                Label &back = elements[n];
-                back.length = key;
-                back.node_id = element;
-                back.previous = label->previous;
-                position[element] = n;
+                element_t &back = elements[n];
+                back.label = label;
+                position[label->node_id] = n;
                 shift_up(n++);
             } else
             {
-                int el_pos = position[element];
-                Label &el = elements[el_pos];
-                el.length = key;
-                el.previous = label->previous;
-
-                if (key > el.length)
+                int el_pos = position[label->node_id];
+                element_t &el = elements[el_pos];
+                if (label->heuLength > el.label->heuLength)
+                {
+                    el.label = label;
                     shift_down(el_pos);
-                else
+                } else
+                {
+                    el.label = label;
                     shift_up(el_pos);
+                }
             }
         }
 
 
-        // Clear the heapCust.
+        // Clear the heap.
         inline void clear()
         {
-            for (NodeId i = 0; i < n; ++i)
+            for (int i = 0; i < n; ++i)
             {
-                position[elements[i].node_id] = NULLINDEX;
+                position[elements[i].label->node_id] = NULLINDEX;
             }
             n = 0;
         }
@@ -238,17 +259,16 @@ namespace benchmark
             n = 0;
         }
 
-
-        // Test whether an node_id is contained in the heapCust.
-        [[nodiscard]] inline bool contains(const NodeId node_id) const
+        // Test whether an element is contained in the heap.
+        [[nodiscard]] inline bool contains(const NodeId v) const
         {
-            return position[node_id] != NULLINDEX;
+            return position[v] != NULLINDEX;
         }
 
 
     protected:
 
-        // Shift up an element.
+        // Sift up an element.
         inline void shift_up(int i)
         {
             assert(i < n);
@@ -256,7 +276,7 @@ namespace benchmark
             while (cur_i > 0)
             {
                 int parent_i = (cur_i - 1) >> log_k;
-                if (elements[parent_i].length > elements[cur_i].length)
+                if (elements[parent_i].label->heuLength > elements[cur_i].label->heuLength)
                     swap(cur_i, parent_i);
                 else
                     break;
@@ -264,7 +284,7 @@ namespace benchmark
             }
         }
 
-        // Shift down an element.
+        // Sift down an element.
         inline void shift_down(int i)
         {
             assert(i < n);
@@ -272,17 +292,17 @@ namespace benchmark
             while (true)
             {
                 int min_ind = i;
-                int min_key = elements[i].length;
+                key_t min_key = elements[i].label->heuLength;
 
-                int child_ind_l = (i << log_k) + 1;
-                NodeId child_ind_u = std::min(child_ind_l + k, n);
+                unsigned int child_ind_l = (i << log_k) + 1;
+                unsigned int child_ind_u = std::min(child_ind_l + k, n);
 
                 for (int j = child_ind_l; j < child_ind_u; ++j)
                 {
-                    if (elements[j].length < min_key)
+                    if (elements[j].label->heuLength < min_key)
                     {
                         min_ind = j;
-                        min_key = elements[j].length;
+                        min_key = elements[j].label->heuLength;
                     }
                 }
 
@@ -298,18 +318,18 @@ namespace benchmark
             }
         }
 
-        // Swap two elements in the heapCust.
-        inline void swap(const int i, const int j)
+        // Swap two elements in the heap.
+        inline void swap(const  int i, const int j)
         {
-            Label &el_i = elements[i];
-            Label &el_j = elements[j];
+            element_t &el_i = elements[i];
+            element_t &el_j = elements[j];
 
             // Exchange positions
-            position[el_i.node_id] = j;
-            position[el_j.node_id] = i;
+            position[el_i.label->node_id] = j;
+            position[el_j.label->node_id] = i;
 
             // Exchange elements
-            Label temp = el_i;
+            element_t temp = el_i;
             el_i = el_j;
             el_j = temp;
         }
@@ -317,14 +337,14 @@ namespace benchmark
 
     private:
 
-        // Number of elements in the heapCust.
-        int n{};
+        // Number of elements in the heap.
+        unsigned int n{};
 
         // Number of maximal elements.
-        int max_n{};
+        unsigned int max_n{};
 
-        // Array of element heap_elements.
-        vector<Label> elements;
+        // Array of length heap_elements.
+        vector<element_t> elements;
 
         // An array of positions for all elements.
         vector<int> position;
@@ -337,10 +357,9 @@ typedef priority_queue<Label *, std::vector<Label *>, AstarComparator> PriorityQ
 
 pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source, NodeId target);
 
-void dijkstra_label(RoadNetwork *rN, NodeId source, NodeId target, Label *curLabel);
-
-void dijkstra_label_timedep(vector<unordered_map<NodeId, EdgeFlowInfo>> &trafficStat, int timeReslo, int timeIntNum,
-                            NodeId source, NodeId target, Label *curLabel);
+vector<Label *> dijkstra_label_timedep(
+        vector<unordered_map<NodeId, EdgeFlowInfo>> &trafficStat, int timeReslo,
+        int timeIntNum, NodeId source, NodeId target);
 
 int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target);
 
@@ -348,4 +367,5 @@ Path astar_limited(RoadNetwork *rN, NodeId source, NodeId target, vector<int> &b
                    unordered_set<Edge, boost::hash<Edge>> &deletedEdges);
 
 bool randomBool(int trialNum, double sucRateEachTrial);
+
 #endif //TRAFFIC_ASSIGNMENT_TOOLS_H

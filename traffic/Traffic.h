@@ -8,13 +8,196 @@
 #include "../tools/tools.h"
 #include <cmath>
 
-namespace benchmark
+namespace benchmark2
 {
 
 #define NULLINDEX 0xFFFFFFFF
 
+    template<int log_k>
+    class heapEval
+    {
+
+    public:
+
+        // Expose types.
+
+        // Some constants regarding the elements.
+        //static const node_t NULLINDEX = 0xFFFFFFFF;
+        static const int k = 1 << log_k;
+
+        // A struct defining a heap element.
+        struct element_t
+        {
+            RequestId req;
+            Label *label{};
+
+            element_t() : req(-1), label() {}
+
+            element_t(RequestId req, Label *label) : req(req), label(label) {}
+        };
+
+        // Constructor of the heap.
+        explicit heapEval(int n) : n(0), max_n(n), elements(n), position(n, NULLINDEX)
+        {
+        }
+
+        heapEval()
+        = default;
+
+        // Size of the heap.
+        [[nodiscard]] inline int size() const
+        {
+            return n;
+        }
+
+        // Heap empty?
+        [[nodiscard]] inline bool empty() const
+        {
+            return size() == 0;
+        }
+
+        // Extract min element.
+        inline void extract_min(Label *&inputLabel, RequestId &req)
+        {
+            assert(!empty());
+
+            element_t &front = elements[0];
+
+            // Assign element and key.
+            inputLabel = front.label;
+            req = front.req;
+
+            // Replace elements[0] by last element.
+            position[req] = NULLINDEX;
+            --n;
+            if (!empty())
+            {
+                front = elements[n];
+                position[front.req] = 0;
+                shift_down(0);
+            }
+        }
+
+        inline void top(Label *&inputLabel, RequestId &req)
+        {
+            assert(!empty());
+
+            inputLabel = elements[0].label;
+            req = elements[0].req;
+        }
+
+        // Update an element of the heap.
+        inline void update(Label *label, const RequestId req)
+        {
+            if (position[req] == NULLINDEX)
+            {
+                element_t &back = elements[n];
+                back.label = label;
+                back.req = req;
+                position[req] = n;
+                shift_up(n++);
+            } else
+            {
+                int el_pos = position[req];
+                element_t &el = elements[el_pos];
+                if (label->length > el.label->length)
+                {
+                    el.label = label;
+                    shift_down(el_pos);
+                } else
+                {
+                    el.label = label;
+                    shift_up(el_pos);
+                }
+            }
+        }
+
+    protected:
+
+        // Sift up an element.
+        inline void shift_up(int i)
+        {
+            assert(i < n);
+            int cur_i = i;
+            while (cur_i > 0)
+            {
+                int parent_i = (cur_i - 1) >> log_k;
+                if (elements[parent_i].label->length > elements[cur_i].label->length)
+                    swap(cur_i, parent_i);
+                else
+                    break;
+                cur_i = parent_i;
+            }
+        }
+
+        // Sift down an element.
+        inline void shift_down(int i)
+        {
+            assert(i < n);
+
+            while (true)
+            {
+                int min_ind = i;
+                key_t min_key = elements[i].label->length;
+
+                int child_ind_l = (i << log_k) + 1;
+                int child_ind_u = std::min(child_ind_l + k, n);
+
+                for (int j = child_ind_l; j < child_ind_u; ++j)
+                {
+                    if (elements[j].label->length < min_key)
+                    {
+                        min_ind = j;
+                        min_key = elements[j].label->length;
+                    }
+                }
+
+                // Exchange?
+                if (min_ind != i)
+                {
+                    swap(i, min_ind);
+                    i = min_ind;
+                } else
+                {
+                    break;
+                }
+            }
+        }
+
+        // Swap two elements in the heap.
+        inline void swap(const int i, const int j)
+        {
+            element_t &el_i = elements[i];
+            element_t &el_j = elements[j];
+
+            // Exchange positions
+            position[el_i.req] = j;
+            position[el_j.req] = i;
+
+            // Exchange elements
+            element_t temp = el_i;
+            el_i = el_j;
+            el_j = temp;
+        }
+
+
+    private:
+
+        // Number of elements in the heap.
+        int n{};
+
+        // Number of maximal elements.
+        int max_n{};
+
+        // Array of length heap_elements.
+        vector<element_t> elements;
+
+        // An array of positions for all elements.
+        vector<int> position;
+    };
+
     template<int log_k, typename k_t, typename id_t>
-    class heap
+    class heapSelectQ
     {
 
     public:
@@ -27,7 +210,7 @@ namespace benchmark
         //static const node_t NULLINDEX = 0xFFFFFFFF;
         static const node_t k = 1 << log_k;
 
-        // A struct defining a heapCust element.
+        // A struct defining a heap element.
         struct element_t
         {
             key_t key;
@@ -38,24 +221,12 @@ namespace benchmark
             element_t(const key_t k, const node_t e) : key(k), element(e) {}
         };
 
+        // Constructor of the heap.
+        explicit heapSelectQ(node_t n) : n(0), max_n(n), elements(n), position(n, NULLINDEX) {}
 
-    public:
+        heapSelectQ() = default;
 
-        // Constructor of the heapCust.
-        explicit heap(node_t n) : n(0), max_n(n), elements(n), position(n, NULLINDEX)
-        {
-        }
-
-        heap() = default;
-
-        inline void resize(node_t n)
-        {
-            max_n = n;
-            elements.reserve(n);
-            position.assign(n, NULLINDEX);
-        }
-
-        // Size of the heapCust.
+        // Size of the heap.
         inline node_t size() const
         {
             return n;
@@ -67,7 +238,7 @@ namespace benchmark
             return size() == 0;
         }
 
-        // Extract min element.
+        // Extract max element.
         inline void extract_max(node_t &element, key_t &key)
         {
             assert(!empty());
@@ -136,7 +307,7 @@ namespace benchmark
         }
 
 
-        // Clear the heapCust.
+        // Clear the heap.
         inline void clear()
         {
             for (node_t i = 0; i < n; ++i)
@@ -158,8 +329,8 @@ namespace benchmark
         }
 
 
-        // Test whether an element is contained in the heapCust.
-        [[nodiscard]] inline bool contains(const node_t element) const
+        // Test whether an element is contained in the heap.
+        inline bool contains(const node_t element) const
         {
             return position[element] != NULLINDEX;
         }
@@ -183,33 +354,33 @@ namespace benchmark
             }
         }
 
-        // Sift down an element at position i.
+        // Sift down an element.
         inline void shift_down(node_t i)
         {
             assert(i < n);
 
             while (true)
             {
-                node_t max_ind = i;
-                key_t max_key = elements[i].key;
+                node_t min_ind = i;
+                key_t min_key = elements[i].key;
 
                 node_t child_ind_l = (i << log_k) + 1;
                 node_t child_ind_u = std::min(child_ind_l + k, n);
 
                 for (node_t j = child_ind_l; j < child_ind_u; ++j)
                 {
-                    if (elements[j].key > max_key)
+                    if (elements[j].key > min_key)
                     {
-                        max_ind = j;
-                        max_key = elements[j].key;
+                        min_ind = j;
+                        min_key = elements[j].key;
                     }
                 }
 
                 // Exchange?
-                if (max_ind != i)
+                if (min_ind != i)
                 {
-                    swap(i, max_ind);
-                    i = max_ind;
+                    swap(i, min_ind);
+                    i = min_ind;
                 } else
                 {
                     break;
@@ -217,7 +388,7 @@ namespace benchmark
             }
         }
 
-        // Swap two elements in the heapCust.
+        // Swap two elements in the heap.
         inline void swap(const node_t i, const node_t j)
         {
             element_t &el_i = elements[i];
@@ -236,11 +407,11 @@ namespace benchmark
 
     private:
 
-        // Number of elements in the heapCust.
-        node_t n{};
+        // Number of elements in the heap.
+        node_t n;
 
         // Number of maximal elements.
-        node_t max_n{};
+        node_t max_n;
 
         // Array of length heap_elements.
         vector<element_t> elements;
@@ -249,140 +420,74 @@ namespace benchmark
         vector<node_t> position;
     };
 }
+struct ET
+{
+    NodeId v1, v2;
+    TimeIntIdx i;
+
+    ET(NodeId v1, NodeId v2, TimeIntIdx i)
+    {
+        this->v1 = v1;
+        this->v2 = v2;
+        this->i = i;
+    }
+};
+
+struct Request
+{
+    NodeId o, d;
+    long long int waitTimes = 0, departT = 0;
+
+    Request(NodeId o, NodeId d, int departT)
+    {
+        this->o = o;
+        this->d = d;
+        this->departT = departT;
+    }
+};
+
 
 class Traffic
 {
 public:
-    unordered_map<RequestId, pair<NodeId, NodeId>> requestIdMap; // request's s-t
+    vector<Request> requestODs; // request's s-t
     RoadNetwork &rN;
-    int capacity{}, reqNo = 1000;
+    int reqNo = 1000, timeIntNum = 1000, timeReslo = 100, penalR = 10;
 
-    Traffic(RoadNetwork &rN, Coord &sCenter, Coord &tCenter, int r1, int r2, int capacity) : rN(rN)
-    {
-        this->capacity = capacity;
-        this->reqNo = reqNo;
-        unordered_map<NodeId, int> endPointKeyMap;
+    vector<Label *> trajectories;
+    vector<vector<Label *>> labelCollection;
+    vector<unordered_map<NodeId, EdgeFlowInfo>> trafficStat;
+    unordered_map<Edge, unordered_set<TimeIntIdx>, hash_edge> traversedEdges;
 
-        vector<NodeId> sources = getNodesInR(sCenter, r1);
-        vector<NodeId> targets = getNodesInR(tCenter, r2);
-        for (int i = 0; i < sources.size(); i++)
-        {
-            for (int j = 0; j < targets.size(); j++)
-            {
-                RequestId reqId = targets.size() * i + j;
-                requestIdMap[reqId] = make_pair(sources[i], targets[j]);
-            }
-        }
+    Traffic(RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo, int penalR);
 
-        this->reqNo = requestIdMap.size();
-    }
+    void temporalDij(unordered_set<RequestId> &reqs);
 
-    Traffic(RoadNetwork &rN, string &OdPath, int capacity, int reqNo) : rN(rN)
-    {
-        this->capacity = capacity;
-
-        RequestId id = 0;
-        NodeId origin, dest;
-        ifstream infile(OdPath);
-
-        while (infile >> origin >> dest)
-        {
-            requestIdMap[id] = make_pair(origin, dest);
-            id += 1;
-            if (id == reqNo)
-                break;
-        }
-        infile.close();
-
-        for (int k = 1; k < 10; k++)
-        {
-            for (RequestId req = 0; req < reqNo; req++)
-            {
-                RequestId requestId = k * reqNo + req;
-                requestIdMap[requestId] = requestIdMap[req];
-            }
-        }
-
-        this->reqNo = requestIdMap.size();
-    }
+    void deleteLabels(RequestId req);
 
     void writeSetting(const basic_string<char> &path, const basic_string<char> &rNName) const;
 
-private:
-    vector<NodeId> getNodesInR(Coord &center, int r);
+    // return overflow ETs resulted by adding this path to traffic
+    void UpdateTrafficFlow(RequestId req, vector<ET> &overflowETs);
 
-};
+    void rankReqsByOverFlowETs(
+            vector<long long int> &reqColli, benchmark2::heapSelectQ<2, long long int, RequestId> &reqHeap,
+            vector<ET> &overflowETs);
 
-class Simulation
-{
+    void delTrajectoryInRN(RequestId request, vector<ET> &newUnderflowEdges);
 
-public:
-    explicit Simulation(Traffic &traffic, int timeInts, int timeResl) : traffic(traffic)
-    {
-        this->timeIntNum = timeInts;
-        this->timeReslo = timeResl;
+    void updateHeuWeights();
 
-        EdgeList::iterator iterAdj;
-        trafficStat.resize(traffic.rN.numNodes + 1);
-        for (NodeId i = 0; i <= traffic.rN.numNodes; i++)
-        {
-            for (iterAdj = traffic.rN.adjListOut[i].begin();
-                 iterAdj != traffic.rN.adjListOut[i].end(); iterAdj++)
-            {
-                trafficStat[i][iterAdj->first].tempFlow.resize(timeInts, 0);
-                trafficStat[i][iterAdj->first].tempReqs.resize(timeInts);
-                trafficStat[i][iterAdj->first].tempWeight.resize(timeInts, iterAdj->second);
-                trafficStat[i][iterAdj->first].weight = iterAdj->second;
-            }
-        }
+    void clearEdgeProfile(NodeId v1, NodeId v2);
 
-        trajectories.resize(traffic.requestIdMap.size(), nullptr);
-    }
-
-    long long int test();
-
-    long long int rerouteAllPaths();
-
-    long long int rerouteAllBlockETs();
-
-    long long int reroutePartialBlockETs(double frac);
+    [[nodiscard]] long long int costFunc(int baseCost, int edgeFlow, int capacity) const;
 
     void writeTrajectories(const basic_string<char> &path);
 
-    void writeEdgeFlowDist(const basic_string<char> &path);
-
-    long long int getCost();
-
-private:
-    Traffic &traffic;
-    vector<Label *> trajectories;
-    vector<unordered_map<NodeId, EdgeFlowInfo>> trafficStat;
-    unordered_set<Edge, hash_edge> traversedEdges;
-
-    int timeIntNum = 1000, timeReslo = 100;
-
-    int trajCostFun1(int baseCost, int edgeFlow);
-
-    // return overflow ETs resulted by adding this path to traffic
-    void addTrajectoryInRN(RequestId request, set<pair<Edge, TimeIntIdx>> & overflowETs);
-
-    unordered_set<RequestId> selectReqsBasedOnETCnt(set<pair<Edge, TimeIntIdx>> & overflowETs,
-            vector<int> &reqCNT, benchmark::heap<2, int, RequestId> &reqHeap, int unfixedNum, double frac);
-
-    // return ETs become underflow by due to removal of this request from traffic
-    vector<pair<Edge, TimeIntIdx>> delTrajectoryInRN(RequestId request);
-
-    void clearTraffic();
-
     void writeCollision(const basic_string<char> &path, vector<Edge> &overflowEdges);
 
-    void updateEdgeCost();
+    long long int simulateTraffic();
 
-    void blockOverflowETs(set<pair<Edge, TimeIntIdx>> &overflowETs);
-
-    void routing(unordered_set<RequestId> &reqs);
-
-    void blockOverflowETsRandom(set<pair<Edge, TimeIntIdx>> &overflowETs);
 };
 
 #endif //TRAFFIC_ASSIGNMENT_TRAFFIC_H

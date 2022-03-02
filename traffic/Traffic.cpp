@@ -6,409 +6,290 @@
 #include <fstream>
 
 
+Traffic::Traffic(RoadNetwork &rN, vector<Request> &requestMap,
+                 int timeIntNum, int timeReslo, int penalR) : rN(rN), requestODs(requestMap)
+{
+    this->timeIntNum = timeIntNum;
+    this->timeReslo = timeReslo;
+
+    unordered_map<NodeId, int> endPointKeyMap;
+
+    this->reqNo = requestODs.size();
+    this->penalR = penalR;
+
+    trafficStat.resize(rN.numNodes + 1);
+    EdgeList::iterator iterAdj;
+    for (NodeId i = 0; i <= rN.numNodes; i++)
+    {
+        for (iterAdj = rN.adjListOut[i].begin();
+             iterAdj != rN.adjListOut[i].end(); iterAdj++)
+        {
+            trafficStat[i][iterAdj->first].tempFlow.resize(timeIntNum, 0);
+            trafficStat[i][iterAdj->first].tempReqs.resize(timeIntNum);
+            trafficStat[i][iterAdj->first].tempWeight.resize(timeIntNum, iterAdj->second);
+            trafficStat[i][iterAdj->first].modified.resize(timeIntNum, false);
+            trafficStat[i][iterAdj->first].weight = iterAdj->second;
+            assert(iterAdj->second >= 0);
+        }
+    }
+
+    trajectories.assign(reqNo, nullptr);
+    labelCollection.resize(reqNo);
+}
+
+void Traffic::temporalDij(unordered_set<RequestId> &reqs)
+{
+    for (const auto &req: reqs)
+    {
+        deleteLabels(req);
+        labelCollection[req] = dijkstra_label_timedep(
+                trafficStat, timeReslo, timeIntNum,
+                requestODs[req].o, requestODs[req].d);
+
+        trajectories[req] = labelCollection[req][requestODs[req].o];
+    }
+}
+
+void Traffic::deleteLabels(RequestId req)
+{
+    if (!labelCollection[req].empty())
+    {
+        for (const auto &ptr: labelCollection[req])
+        {
+            delete ptr;
+        }
+    }
+}
+
+long long int Traffic::simulateTraffic()
+{
+    traversedEdges.clear();
+    benchmark2::heapEval<2> queue(reqNo);
+    // records request on each edge and sort them by their leaving time
+    unordered_map<Edge, benchmark2::heapEval<2>, hash_edge> signList;
+
+    for (RequestId i = 0; i < reqNo; i++)
+    {
+        Label *srcL = trajectories[i];
+        assert(srcL != nullptr);
+        srcL->length = requestODs[i].departT; // re-start lengths for all requsts
+
+        queue.update(srcL, i);
+
+        Label *label = srcL;
+        while (label->nextL != nullptr)
+        {
+            clearEdgeProfile(label->node_id, label->nextL->node_id);
+            benchmark2::heapEval<2> _queue(reqNo);
+            signList[Edge(label->node_id, label->nextL->node_id)] = _queue;
+            label = label->nextL;
+        }
+    }
+
+    auto *curL = new Label();
+    auto *curLS = new Label();
+    RequestId i, j;
+    long long totalC = 0;
+    while (!queue.empty())
+    {
+        queue.extract_min(curL, i);
+
+        if (curL->previous != nullptr)
+        {
+            benchmark2::heapEval<2> &_queue = signList[Edge(curL->previous->node_id, curL->node_id)];
+            assert(!_queue.empty());
+            // here we need to ensure that current req is extracted
+            vector<pair<Label *, RequestId>> buffer;
+            long long int minLen = INT_MAX;
+            while (true)
+            {
+                _queue.extract_min(curLS, j);
+                if (curLS->length < minLen)
+                    minLen = curLS->length;
+                if (i == j)
+                    break;
+                buffer.emplace_back(curLS, j);
+            }
+            for (const auto &pair: buffer)
+            {
+                _queue.update(pair.first, pair.second);
+            }
+            assert(curL->node_id == curLS->node_id);
+            assert(curL->length == curLS->length && curL->length == minLen);
+            trafficStat[curL->previous->node_id][curL->node_id].liveFlow -= 1; // leaves previous edge, may reassign later
+        } else
+        {
+            requestODs[i].waitTimes = 0; // recalculate wait times
+        }
+
+        if (curL->nextL == nullptr)
+        {
+            totalC += curL->length;
+            continue;
+        }
+
+        int capacity = rN.capacity[rN.edgeMap[curL->node_id][curL->nextL->node_id]];
+        if (trafficStat[curL->node_id][curL->nextL->node_id].liveFlow < capacity)
+        {
+            // leave from current edge, enter next edge, record the time that leaves next edge
+            long long cost = costFunc(
+                    trafficStat[curL->node_id][curL->nextL->node_id].weight,
+                    trafficStat[curL->node_id][curL->nextL->node_id].liveFlow, capacity);
+
+            curL->nextL->length = curL->length + cost; // did update length of our labels arrival time of curL.nextL
+            queue.update(curL->nextL, i);
+
+            //sort reqs on running on edge (cur, curNext) by their leaving time
+            signList[Edge(curL->node_id, curL->nextL->node_id)].update(curL->nextL, i);
+            trafficStat[curL->node_id][curL->nextL->node_id].liveFlow += 1; // enters this edge
+        } else
+        {
+            // the edge about to enter is full, get the earliest time when a car on the edge leaves
+            benchmark2::heapEval<2> _queue = signList[Edge(curL->node_id, curL->nextL->node_id)];
+            assert(_queue.size() == capacity);
+            _queue.top(curLS, j); // curLS.previous.nodeId = curL.nodeId;
+            assert(curLS->length >= curL->length);
+            requestODs[i].waitTimes += curLS->length - curL->length + 1;
+            curL->length =
+                    curLS->length + 1; // add 1 is to avoid non-stop recursive, to wait until a car leaves the edge
+            queue.update(curL, i);
+
+            if (curL->previous != nullptr) // this request should re-sign this edge
+            {
+                signList[Edge(curL->previous->node_id, curL->node_id)].update(curL, i);
+                trafficStat[curL->previous->node_id][curL->node_id].liveFlow += 1;
+            }
+        }
+    }
+
+    return totalC;
+}
+
+void Traffic::rankReqsByOverFlowETs(
+        vector<long long int> &reqColli, benchmark2::heapSelectQ<2, long long int, RequestId> &reqHeap, vector<ET> &overflowETs)
+{
+    for (const auto &et: overflowETs)
+    {
+        for (const auto &request: trafficStat[et.v1][et.v2].tempReqs[et.i])
+        {
+            if (reqColli[request] < 0)
+                continue;
+            reqColli[request] += 1;
+            reqHeap.update(request, reqColli[request]);
+        }
+    }
+}
+
+void Traffic::UpdateTrafficFlow(RequestId request, vector<ET> &overflowETs)
+{
+    auto *curLabel = trajectories[request];
+    assert(curLabel != nullptr);
+
+    while (curLabel->nextL != nullptr)
+    {
+        clearEdgeProfile(curLabel->node_id, curLabel->nextL->node_id);
+
+        TimeIntIdx timeInt1 = floor(curLabel->length / timeReslo);
+        TimeIntIdx timeInt2 = floor(curLabel->nextL->length / timeReslo);
+
+        for (TimeIntIdx i = timeInt1; i <= timeInt2; i++)
+        {
+            assert(i < timeIntNum);
+            traversedEdges[Edge(curLabel->node_id, curLabel->nextL->node_id)].insert(i);
+            trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempFlow[i] += 1;
+            trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempReqs[i].insert(request);
+
+            int roadId = rN.edgeMap[curLabel->node_id][curLabel->nextL->node_id];
+            if (rN.capacity[roadId] == trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempFlow[i])
+            {
+                overflowETs.emplace_back(ET(curLabel->node_id, curLabel->nextL->node_id, i));
+            }
+        }
+        curLabel = curLabel->nextL;
+    }
+}
+
+void Traffic::delTrajectoryInRN(RequestId request, vector<ET> &newUnderflowEdges)
+{
+    auto *curLabel = trajectories[request];
+    while (curLabel->nextL != nullptr)
+    {
+        TimeIntIdx timeInt1 = floor(curLabel->length / timeReslo);
+        TimeIntIdx timeInt2 = floor(curLabel->nextL->length / timeReslo);
+
+        for (TimeIntIdx i = timeInt1; i <= timeInt2; i++)
+        {
+            assert(trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempFlow[i] > 0);
+            int roadId = rN.edgeMap[curLabel->node_id][curLabel->nextL->node_id];
+
+            if (trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempFlow[i] == rN.capacity[roadId])
+            {
+                newUnderflowEdges.emplace_back(ET(curLabel->node_id, curLabel->nextL->node_id, i));
+            }
+            trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempReqs[i].erase(request);
+            trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempFlow[i] -= 1;
+        }
+        curLabel = curLabel->nextL;
+    }
+}
+
+void Traffic::updateHeuWeights()
+{
+    // update et based on edge cost for further temporalDij
+    for (const auto &et: traversedEdges)
+    {
+        for (const auto &i: et.second)
+        {
+            int flow = trafficStat[et.first.first][et.first.second].tempFlow[i];
+            if (flow == 0)
+                continue;
+
+            // do not unblock blocked edges
+            if (trafficStat[et.first.first][et.first.second].modified[i])
+                continue;
+
+            int roadId = rN.edgeMap[et.first.first][et.first.second];
+            // does not necessarily, because we only ensure at each time instance flow is under capacity, not each time interval
+            // assert(flow <= rN.capacity[roadId]);
+            long long int cost = costFunc(
+                    trafficStat[et.first.first][et.first.second].weight, flow, rN.capacity[roadId]);
+            trafficStat[et.first.first][et.first.second].tempWeight[i] = cost * 0.1; // to avoid
+        }
+    }
+}
+
+long long int Traffic::costFunc(int baseCost, int edgeFlow, int capacity) const
+{
+    long long int cost = floor((baseCost * (1 + 0.15 * pow(penalR * edgeFlow / capacity, 4))));
+    assert(cost >= 0);
+    return cost;
+}
+
+void Traffic::clearEdgeProfile(NodeId v1, NodeId v2)
+{
+    vector<unordered_set<RequestId>> s(timeIntNum);
+    trafficStat[v1][v2].tempReqs.swap(s);
+    trafficStat[v1][v2].liveFlow = 0;
+    fill(trafficStat[v1][v2].tempFlow.begin(),
+         trafficStat[v1][v2].tempFlow.end(), 0);
+    int weight = trafficStat[v1][v2].weight;
+    fill(trafficStat[v1][v2].tempWeight.begin(),
+         trafficStat[v1][v2].tempWeight.end(), weight);
+}
+
 void Traffic::writeSetting(const basic_string<char> &path, const basic_string<char> &rNName) const
 {
     ofstream ofstream(path);
-    ofstream << "capacity: " << capacity << "; no. requests: " << reqNo << endl;
-    for (const auto od: requestIdMap)
+    ofstream << "map: " << rNName << "; no. requests: " << reqNo << endl;
+    for (const auto &req: requestODs)
     {
-        ofstream << rN.coords[od.second.first].first << "\t" << rN.coords[od.second.first].second << endl;
-        ofstream << rN.coords[od.second.second].first << "\t" << rN.coords[od.second.second].second << endl;
+        ofstream << req.o << "\t" << req.d << endl;
     }
 
     ofstream.close();
 }
 
-
-vector<NodeId> Traffic::getNodesInR(Coord &center, int r)
-{
-    vector<NodeId> v;
-    for (NodeId i = 0; i <= rN.numNodes; i++)
-    {
-        if (RoadNetwork::distance(center, rN.coords[i]) <= r)
-        {
-            v.emplace_back(i);
-        }
-    }
-
-    return v;
-}
-
-void Simulation::routing(unordered_set<RequestId> &reqs)
-{
-    for (const auto &req: reqs)
-    {
-        auto *sourceLabel = new Label(traffic.requestIdMap[req].first, 0);
-        dijkstra_label_timedep(trafficStat, timeReslo, timeIntNum, traffic.requestIdMap[req].first,
-                               traffic.requestIdMap[req].second, sourceLabel);
-
-        assert(sourceLabel != nullptr);
-        trajectories[req] = sourceLabel;
-    }
-}
-
-long long int Simulation::test()
-{
-    /**
-     * Based on base cost // first iteration
-     */
-
-    cout << "test" << endl;
-
-    unordered_set<RequestId> reqs(traffic.reqNo);
-    benchmark::heap<2, int, RequestId> reqHeap(traffic.reqNo);
-    vector<int> reqCNT(traffic.reqNo, 0);
-
-    for (RequestId req = 0; req < traffic.reqNo; req++)
-        reqs.insert(req);
-    routing(reqs);
-
-    set<pair<Edge, TimeIntIdx>> overflowETs;
-    for (const auto &req: reqs)
-    {
-        addTrajectoryInRN(req, overflowETs);
-    }
-
-//    updateEdgeCost();
-    long int curCost = getCost();
-
-    // update rank of reqs
-    set<pair<Edge, TimeIntIdx>>::iterator et;
-    for (et = overflowETs.begin(); et != overflowETs.end(); et++)
-    {
-        for (const auto req: trafficStat[et->first.first][et->first.second].tempReqs[et->second])
-        {
-            reqCNT[req] += 1;
-            reqHeap.update(req, reqCNT[req]);
-        }
-    }
-
-    for (const auto &req: reqs)
-    {
-        vector<pair<Edge, TimeIntIdx>> del = delTrajectoryInRN(req);
-        for (const auto et: del)
-        {
-            for (const auto req: trafficStat[et.first.first][et.first.second].tempReqs[et.second])
-            {
-                reqCNT[req] -= 1;
-                reqHeap.update(req, reqCNT[req]);
-            }
-        }
-    }
-    return curCost;
-}
-
-
-long long int Simulation::rerouteAllPaths()
-{
-    // do not voluntary to adjust edge weight, just update edge weight based on previous traffic status
-    cout << "basic simulation" << endl;
-
-    unordered_set<RequestId> reqs(traffic.reqNo);
-    for (RequestId req = 0; req < traffic.reqNo; req++)
-        reqs.insert(req);
-
-    int iteration = 0;
-    long long int curCost;
-    while (true)
-    {
-        routing(reqs);
-
-        // clear traffic state of last iteration
-        clearTraffic();
-
-        // update the traffic state and edge cost based on given trajectories
-        set<pair<Edge, TimeIntIdx>> overflowETs;
-        for (const auto &req: reqs)
-            addTrajectoryInRN(req, overflowETs);
-        updateEdgeCost();
-
-        // evaluate travel cost based on new traffic state
-        curCost = getCost();
-        cout << curCost << endl;
-
-        iteration += 1;
-
-        if (iteration == 100)
-            return curCost;
-    }
-}
-
-void Simulation::addTrajectoryInRN(RequestId request, set<pair<Edge, TimeIntIdx>> &newOverflowEdges)
-{
-    auto *curLabel = trajectories[request];
-    assert(curLabel != nullptr);
-
-    while (curLabel->previous != nullptr)
-    {
-        traversedEdges.insert(make_pair(curLabel->previous->node_id, curLabel->node_id));
-
-        trafficStat[curLabel->previous->node_id][curLabel->node_id].totalFlow += 1;
-
-        TimeIntIdx timeInt = curLabel->previous->length / timeReslo;
-        TimeIntIdx timeInt2 = curLabel->length / timeReslo;
-
-        for (TimeIntIdx i = timeInt; i <= timeInt2; i++)
-        {
-            trafficStat[curLabel->previous->node_id][curLabel->node_id].tempFlow[i] += 1;
-            trafficStat[curLabel->previous->node_id][curLabel->node_id].tempReqs[i].insert(request);
-
-            if (trafficStat[curLabel->previous->node_id][curLabel->node_id].tempFlow[i] == traffic.capacity)
-            {
-                newOverflowEdges.insert(make_pair(make_pair(curLabel->previous->node_id, curLabel->node_id), i));
-            }
-        }
-        curLabel = curLabel->previous;
-    }
-}
-
-long long int Simulation::rerouteAllBlockETs()
-{
-    cout << "Block overflow (e,t) and reroute all paths" << endl;
-
-    unordered_set<RequestId> reqs(traffic.reqNo);
-    for (RequestId req = 0; req < traffic.reqNo; req++)
-        reqs.insert(req);
-
-    int iteration = 0;
-    long long int curCost;
-    while (true)
-    {
-        routing(reqs);
-
-        // clear (e,t)s from last iteration
-        clearTraffic();
-
-        // update the traffic state and edge cost based on given trajectories
-        set<pair<Edge, TimeIntIdx>> overflowETs;
-        for (const auto &req: reqs)
-        {
-            addTrajectoryInRN(req, overflowETs);
-        }
-
-        // update (e,t) based on current set of trajectories
-        updateEdgeCost();
-
-        // evaluate travel cost based on new traffic state
-        curCost = getCost();
-        cout << curCost << endl;
-
-        iteration += 1;
-        if (iteration == 100)
-            return curCost;
-
-        // voluntarily block (e,t)s that are overflow based on current set of trajectories
-        blockOverflowETsRandom(overflowETs);
-    }
-}
-
-long long int Simulation::reroutePartialBlockETs(double frac)
-{
-    cout << "Block overflow (e,t) and reroute partial paths" << endl;
-    benchmark::heap<2, int, RequestId> reqHeap(traffic.reqNo);
-    vector<int> reqCNT(traffic.reqNo, 0); // overflow et cnt of deleted paths are wrong (set to 0)
-
-    unordered_set<RequestId> reqs(traffic.reqNo);
-    vector<bool> fixed(traffic.reqNo, false);
-    for (RequestId req = 0; req < traffic.reqNo; req++)
-    {
-        reqs.insert(req);
-    }
-
-    int iteration = 0, unfixedCnt = traffic.reqNo, preUnfixedCnt;
-    long long curCost = 0;
-    set<pair<Edge, TimeIntIdx>> overflowETs;
-
-    while (iteration < 100)
-    {
-        routing(reqs); // reroute reqs that are selected to be reroute
-
-        for (const auto req: reqs)
-        {
-            addTrajectoryInRN(req, overflowETs);
-        }
-
-        // update (e,t) based on current set of trajectories
-        updateEdgeCost();
-
-        // evaluate travel cost based on new traffic state
-        curCost = getCost();
-
-        // update rank of reqs
-        set<pair<Edge, TimeIntIdx>>::iterator et;
-        for (et = overflowETs.begin(); et != overflowETs.end(); et++)
-        {
-            for (const auto &req: trafficStat[et->first.first][et->first.second].tempReqs[et->second])
-            {
-                reqCNT[req] += 1;
-                reqHeap.update(req, reqCNT[req]);
-            }
-        }
-
-        cout << curCost << endl;
-        preUnfixedCnt = unfixedCnt;
-        reqs = selectReqsBasedOnETCnt(overflowETs, reqCNT, reqHeap, unfixedCnt, frac);
-        unfixedCnt -= preUnfixedCnt - reqs.size();
-
-        blockOverflowETsRandom(overflowETs);
-        iteration += 1;
-    }
-
-    return curCost;
-}
-
-unordered_set<RequestId> Simulation::selectReqsBasedOnETCnt(
-        set<pair<Edge, TimeIntIdx>> &overflowETs, vector<int> &reqCNT,
-        benchmark::heap<2, int, RequestId> &reqHeap, int unfixedCnt, double frac)
-{
-    unordered_set<RequestId> reqs;
-    int curReqCnt;
-    RequestId maxReq;
-
-    double cnt = 0;
-    while (cnt / unfixedCnt < frac && !reqHeap.empty())
-    {
-        reqHeap.extract_max(maxReq, curReqCnt);
-        reqCNT[maxReq] = 0;
-        cnt += 1;
-
-        // if (maxReq is fixed, do not )
-        reqs.insert(maxReq);
-        vector<pair<Edge, TimeIntIdx>> newUnderflowEdges = delTrajectoryInRN(maxReq);
-        for (const auto &ET: newUnderflowEdges)
-        {
-            for (const auto &delReq: trafficStat[ET.first.first][ET.first.second].tempReqs[ET.second])
-            {
-                reqCNT[delReq] -= 1;
-                reqHeap.update(delReq, reqCNT[delReq]);
-
-                overflowETs.erase(ET);
-            }
-        }
-    }
-    for (RequestId req = 0; req < traffic.reqNo; req++)
-    {
-        if (reqs.find(req) == reqs.end())
-            reqHeap.update(req, 0);
-    }
-    return reqs;
-}
-
-vector<pair<Edge, TimeIntIdx>> Simulation::delTrajectoryInRN(RequestId request)
-{
-    auto *curLabel = trajectories[request];
-
-    vector<pair<Edge, TimeIntIdx>> newUnderflowEdges;
-    while (curLabel->previous != nullptr)
-    {
-        assert(trafficStat[curLabel->previous->node_id][curLabel->node_id].totalFlow > 0);
-        trafficStat[curLabel->previous->node_id][curLabel->node_id].totalFlow -= 1;
-        if (trafficStat[curLabel->previous->node_id][curLabel->node_id].totalFlow == 0)
-        {
-            traversedEdges.erase(make_pair(curLabel->previous->node_id, curLabel->node_id));
-        }
-
-        TimeIntIdx timeInt = curLabel->previous->length / timeReslo;
-        TimeIntIdx timeInt1 = curLabel->length / timeReslo;
-
-        for (TimeIntIdx i = timeInt; i <= timeInt1; i++)
-        {
-            assert(trafficStat[curLabel->previous->node_id][curLabel->node_id].tempFlow[i] > 0);
-
-            if (trafficStat[curLabel->previous->node_id][curLabel->node_id].tempFlow[i] == traffic.capacity)
-            {
-                newUnderflowEdges.emplace_back(make_pair(make_pair(curLabel->previous->node_id, curLabel->node_id), i));
-            }
-            trafficStat[curLabel->previous->node_id][curLabel->node_id].tempReqs[i].erase(request);
-
-            trafficStat[curLabel->previous->node_id][curLabel->node_id].tempFlow[i] -= 1;
-        }
-        curLabel = curLabel->previous;
-    }
-
-    return newUnderflowEdges;
-}
-
-void Simulation::blockOverflowETs(set<pair<Edge, TimeIntIdx>> &overflowETs)
-{
-    set<pair<Edge, TimeIntIdx>>::iterator et;
-    for (et = overflowETs.begin(); et != overflowETs.end(); et++)
-    {
-        int cnt = trafficStat[et->first.first][et->first.second].tempFlow[et->second];
-        assert (cnt >= traffic.capacity);
-
-        trafficStat[et->first.first][et->first.second].tempWeight[et->second] = INT_MAX;
-    }
-}
-
-void Simulation::blockOverflowETsRandom(set<pair<Edge, TimeIntIdx>> &overflowETs)
-{
-    set<pair<Edge, TimeIntIdx>>::iterator et;
-    for (et = overflowETs.begin(); et != overflowETs.end(); et++)
-    {
-        int cnt = trafficStat[et->first.first][et->first.second].tempFlow[et->second];
-        assert (cnt >= traffic.capacity);
-        if (randomBool(cnt - traffic.capacity + 1, 0.5))
-            trafficStat[et->first.first][et->first.second].tempWeight[et->second] = INT_MAX;
-    }
-}
-
-void Simulation::clearTraffic()
-{
-    for (const auto &edge: traversedEdges)
-    {
-        vector<unordered_set<RequestId>> s(timeIntNum);
-        trafficStat[edge.first][edge.second].tempReqs.swap(s);
-        trafficStat[edge.first][edge.second].totalFlow = 0;
-        fill(trafficStat[edge.first][edge.second].tempFlow.begin(),
-             trafficStat[edge.first][edge.second].tempFlow.end(), 0);
-        fill(trafficStat[edge.first][edge.second].tempWeight.begin(),
-             trafficStat[edge.first][edge.second].tempWeight.end(), trafficStat[edge.first][edge.second].weight);
-    }
-}
-
-void Simulation::updateEdgeCost()
-{
-    // update heuweight based on real edge cost
-    for (const auto &edge: traversedEdges)
-    {
-        for (int i = 0; i < timeIntNum; i++)
-        {
-            if (trafficStat[edge.first][edge.second].tempFlow[i] == 0)
-                continue;
-
-            long int cost = trajCostFun1(trafficStat[edge.first][edge.second].weight,
-                                         trafficStat[edge.first][edge.second].tempFlow[i]);
-            trafficStat[edge.first][edge.second].tempWeight[i] = cost;
-        }
-    }
-}
-
-int Simulation::trajCostFun1(int baseCost, int edgeFlow)
-{
-    int cost = (int) (baseCost * (1 + 0.15 * pow(edgeFlow / traffic.capacity, 4)));
-    return cost;
-}
-
-long long int Simulation::getCost()
-{
-    long long int cost = 0;
-    for (auto label: trajectories)
-    {
-        while (label->previous != nullptr)
-        {
-            TimeIntIdx timeInt = label->previous->length / timeReslo;
-            assert(timeInt < timeIntNum && timeInt >= 0);
-
-            cost += trafficStat[label->previous->node_id][label->node_id].tempWeight[timeInt];
-            label = label->previous;
-        }
-    }
-
-    return cost;
-}
-
-void Simulation::writeTrajectories(const basic_string<char> &path)
+void Traffic::writeTrajectories(const basic_string<char> &path)
 {
     ofstream ofstream(path);
 
@@ -418,12 +299,12 @@ void Simulation::writeTrajectories(const basic_string<char> &path)
         return;
     }
 
-    for (const auto &sourceLabel: trajectories)
+    for (const auto &targetL: trajectories)
     {
-        Label *label = sourceLabel;
+        Label *label = targetL;
         while (label != nullptr)
         {
-            ofstream << traffic.rN.coords[label->node_id].second << "," << traffic.rN.coords[label->node_id].first
+            ofstream << rN.coords[label->node_id].first << "," << rN.coords[label->node_id].second
                      << endl;
             label = label->previous;
         }
@@ -431,30 +312,16 @@ void Simulation::writeTrajectories(const basic_string<char> &path)
     ofstream.close();
 }
 
-void Simulation::writeEdgeFlowDist(const basic_string<char> &path)
-{
-    ofstream ofstream(path);
-    for (NodeId lnode = 0; lnode <= traffic.rN.numNodes; lnode++)
-    {
-        for (const auto &rnodeW: traffic.rN.adjListOut[lnode])
-        {
-            ofstream << trafficStat[lnode][rnodeW.first].totalFlow << endl;
-        }
-    }
-
-    ofstream.close();
-}
-
-void Simulation::writeCollision(const basic_string<char> &path, vector<Edge> &overflowEdges)
+void Traffic::writeCollision(const basic_string<char> &path, vector<Edge> &overflowEdges)
 {
     ofstream ofstream(path);
     float totalColCnt = 0;
     for (const auto &edge: overflowEdges)
     {
-        totalColCnt += trafficStat[edge.first][edge.second].totalFlow;
-        ofstream << trafficStat[edge.first][edge.second].totalFlow << endl;
+        totalColCnt += trafficStat[edge.first][edge.second].liveFlow;
+        ofstream << trafficStat[edge.first][edge.second].liveFlow << endl;
     }
 
     ofstream << totalColCnt / overflowEdges.size() << endl;
+    ofstream.close();
 }
-
