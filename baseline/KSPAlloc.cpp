@@ -5,38 +5,34 @@
 #include "KSPAlloc.h"
 #include "../KSP/kspwlo.h"
 
-KSPAlloc::KSPAlloc(Traffic &traffic, const basic_string<char> &output) : traffic(traffic)
-{
-    string delimiter = "\t";
-    for (RequestId id = 0; id < traffic.reqNo; id ++)
-    {
-        Request od = traffic.requestODs[id];
-        string fileName = output + "esx/" + to_string(od.o) + "-" + to_string(od.d) + ".txt";
-        ifstream file(fileName);
-        assert(file.is_open());
-        string line;
-        while (getline(file, line))
-        {
-            Path path;
-            size_t pos = 0;
-            string token, s = line;
-            while ((pos = s.find(delimiter)) != string::npos)
-            {
-                path.nodes.emplace_back(stoi(s.substr(0, pos)));
-                s.erase(0, pos + delimiter.length());
-            }
-            assert(od.o == path.nodes[0] && od.d == path.nodes[path.nodes.size() - 1]);
-            candidates[id].emplace_back(path);
-        }
-    }
-}
-
 KSPAlloc::KSPAlloc(Traffic &traffic, int k, double theta) : traffic(traffic)
 {
-    for (RequestId id =0; id < traffic.reqNo; id++)
+    cout << "ksp initialization" << endl;
+    this->k = k;
+    this->theta = theta;
+    getCandiPaths();
+}
+
+void KSPAlloc::getCandiPaths()
+{
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * traffic.reqNo / traffic.threadNum);
+    for (int i = 0; i < traffic.threadNum; ++i)
     {
-        candidates[id] = esx(
-                &traffic.rN, traffic.requestODs[id].o, traffic.requestODs[id].d, k, theta);
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end >= traffic.reqNo)
+            end = traffic.reqNo;
+        tGroup.create_thread(boost::bind(&KSPAlloc::getCandiPaths, this, begin, end));
+    }
+    tGroup.join_all();
+}
+
+void KSPAlloc::getCandiPaths(int begin, int end)
+{
+    for (RequestId req = begin; req < end; req++)
+    {
+        candidates[req] = svp_plus_complete(
+                &traffic.rN, traffic.requestODs[req].o, traffic.requestODs[req].d, k, theta).first;
     }
 }
 
@@ -79,7 +75,7 @@ Label *KSPAlloc::pathToLabel(Path &path)
     for (int i = 1; i < path.nodes.size(); i++)
     {
         NodeId curId = path.nodes[i];
-        auto * curL = new Label(curId, 0, prevL);
+        auto *curL = new Label(curId, 0, prevL);
         prevL->nextL = curL;
         prevL = curL;
     }

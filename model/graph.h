@@ -5,18 +5,19 @@
 #ifndef TRAFFIC_ASSIGNMENT_GRAPH_H
 #define TRAFFIC_ASSIGNMENT_GRAPH_H
 
-
 //
 // Created by yehong.xu on 11/12/21.
 //
-
+#include "Semaphore.h"
 #include <iostream>
 #include <fstream>
 #include <queue>
 #include <unordered_set>
 #include <unordered_map>
-
+#include <boost/thread/thread.hpp>
 #include <boost/functional/hash.hpp>
+#include <boost/range/algorithm_ext.hpp>
+#include <boost/range/irange.hpp>
 
 using namespace std;
 
@@ -34,23 +35,19 @@ struct hash_edge
     }
 };
 
-
 typedef pair<float, float> Coord; // lon, lat
 
-typedef unordered_map<NodeId, int> EdgeList; // node_id, edge_weight
+typedef unordered_map<NodeId, int> EdgeList; // node_id, edge_weight or edge id
 typedef int RequestId;
 typedef int TimeIntIdx;
 
-struct EdgeFlowInfo
+struct EdgeProfile
 {
+    int liveFlow = 0, baseCost = -1; // total liveFlow
     vector<unordered_set<RequestId>> tempReqs;
-    int liveFlow = 0, weight = -1; // total liveFlow
     vector<int> tempFlow;
     vector<long long int> tempWeight;
-    vector<bool> modified;
-
-    EdgeFlowInfo()
-    = default;
+    EdgeProfile() = default;
 };
 
 class RoadNetwork
@@ -61,8 +58,8 @@ public:
     vector<EdgeList> adjListOut;
     vector<EdgeList> adjListInc;
     vector<Coord> coords;
-    vector<EdgeList> adjListInHeu;
     vector<int> capacity;
+    vector<Semaphore> edgeSM;
     vector<EdgeList> edgeMap;
 
     explicit RoadNetwork(const char *filename);
@@ -76,12 +73,9 @@ public:
     }
     int getEdgeWeight(NodeId lnode, NodeId rnode);
 
-    void adjustWeight(NodeId lnode, NodeId rnode, int increment);
-
     static float distance(Coord p1, Coord p2);
 
     static float toRadians(float degree);
-
 };
 
 // This is to ensure that edges are considered in a bidirectional fashion for the computation of the overlap.
@@ -101,10 +95,8 @@ public:
     bool containsEdge(Edge &e);
 
     double overlap_ratio(RoadNetwork *rN, Path &path2);
-
 };
-
 
 bool operator==(const Path &lp, const Path &rp);
 
-#endif //TRAFFIC_ASSIGNMENT_GRAPH_H
+#endif // TRAFFIC_ASSIGNMENT_GRAPH_H

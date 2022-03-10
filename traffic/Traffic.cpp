@@ -5,59 +5,182 @@
 #include "Traffic.h"
 #include <fstream>
 
-
 Traffic::Traffic(RoadNetwork &rN, vector<Request> &requestMap,
-                 int timeIntNum, int timeReslo, int penalR) : rN(rN), requestODs(requestMap)
+                 int timeIntNum, int timeReslo, int penalR, int threadNum) : rN(rN), requestODs(requestMap)
 {
     this->timeIntNum = timeIntNum;
     this->timeReslo = timeReslo;
-
-    unordered_map<NodeId, int> endPointKeyMap;
+    this->threadNum = threadNum;
 
     this->reqNo = requestODs.size();
     this->penalR = penalR;
 
     trafficStat.resize(rN.numNodes + 1);
-    EdgeList::iterator iterAdj;
-    for (NodeId i = 0; i <= rN.numNodes; i++)
+
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * (1 + rN.numNodes) / threadNum);
+    for (int i = 0; i < this->threadNum; ++i)
     {
-        for (iterAdj = rN.adjListOut[i].begin();
-             iterAdj != rN.adjListOut[i].end(); iterAdj++)
-        {
-            trafficStat[i][iterAdj->first].tempFlow.resize(timeIntNum, 0);
-            trafficStat[i][iterAdj->first].tempReqs.resize(timeIntNum);
-            trafficStat[i][iterAdj->first].tempWeight.resize(timeIntNum, iterAdj->second);
-            trafficStat[i][iterAdj->first].modified.resize(timeIntNum, false);
-            trafficStat[i][iterAdj->first].weight = iterAdj->second;
-            assert(iterAdj->second >= 0);
-        }
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end > rN.numNodes + 1)
+            end = rN.numNodes + 1;
+        tGroup.create_thread(boost::bind(&Traffic::initialize, this, begin, end));
     }
+    tGroup.join_all();
 
     trajectories.assign(reqNo, nullptr);
-    labelCollection.resize(reqNo);
+    vector<Label *> v;
+    labelCollection.assign(reqNo, v);
+    for (RequestId i = 0; i < reqNo; i++)
+        labelCollection[i].assign(rN.numNodes + 1, nullptr);
 }
 
-void Traffic::temporalDij(unordered_set<RequestId> &reqs)
+void Traffic::initialize(int begin, int end)
 {
-    for (const auto &req: reqs)
+    for (int idx = begin; idx < end; idx++)
     {
-        deleteLabels(req);
-        labelCollection[req] = dijkstra_label_timedep(
-                trafficStat, timeReslo, timeIntNum,
-                requestODs[req].o, requestODs[req].d);
-
-        trajectories[req] = labelCollection[req][requestODs[req].o];
+        for (const auto &edgeList: rN.adjListOut[idx])
+        {
+            trafficStat[idx][edgeList.first].tempFlow.resize(timeIntNum, 0);
+            trafficStat[idx][edgeList.first].tempReqs.resize(timeIntNum);
+            trafficStat[idx][edgeList.first].tempWeight.resize(timeIntNum, edgeList.second);
+            trafficStat[idx][edgeList.first].baseCost = edgeList.second;
+            assert(edgeList.second >= 0);
+        }
     }
 }
 
-void Traffic::deleteLabels(RequestId req)
+void Traffic::allTempDij(vector<RequestId> &reqs)
 {
-    if (!labelCollection[req].empty())
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * reqs.size() / threadNum);
+    for (int i = 0; i < threadNum; ++i)
     {
-        for (const auto &ptr: labelCollection[req])
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end >= reqs.size())
+            end = reqs.size();
+        tGroup.create_thread(boost::bind(&Traffic::rangeTempDij, this, boost::ref(reqs), begin, end));
+    }
+    tGroup.join_all();
+}
+
+void ::Traffic::rangeTempDij(vector<RequestId> &reqs, int begin, int end)
+{
+    for (int i = begin; i < end; i++)
+    {
+        tempDij(reqs[i]);
+    }
+}
+
+void Traffic::tempDij(RequestId requestId)
+{
+    vector<Label *> &labels = labelCollection[requestId];
+
+    NodeId source = requestODs[requestId].o, target = requestODs[requestId].d;
+
+    benchmark::heapDij<2> queue(trafficStat.size());
+
+    unordered_map<NodeId, EdgeProfile>::iterator iterAdj;
+
+    long long int heuNewTravelTime;
+
+    vector<long long int> heuDistances(trafficStat.size(), INT_MAX);
+
+    heuDistances[source] = 0;
+
+    vector<bool> visited(trafficStat.size(), false);
+    auto *curLabel = new Label(source, 0);
+    curLabel->heuLength = 0;
+    queue.update(curLabel);
+    labels[source] = curLabel;
+
+    while (!queue.empty())
+    {
+        queue.extract_min(curLabel);
+        if (curLabel->node_id == target)
         {
-            delete ptr;
+            Label *ll = curLabel;
+            while (ll->previous != nullptr)
+            {
+                ll->previous->nextL = ll;
+                ll = ll->previous;
+            }
+            trajectories[requestId] = labels[source];
+            return;
         }
+
+        visited[curLabel->node_id] = true;
+
+        int timeInt = floor(curLabel->heuLength / timeReslo);
+
+        if (timeInt >= timeIntNum)
+            cout << timeInt << endl;
+        assert(timeInt < timeIntNum);
+
+        assert(labels[curLabel->node_id] != nullptr);
+        labels[curLabel->node_id]->copy(curLabel);
+
+        for (iterAdj = trafficStat[curLabel->node_id].begin();
+             iterAdj != trafficStat[curLabel->node_id].end(); iterAdj++)
+        {
+            if (visited[iterAdj->first])
+                continue;
+
+            heuNewTravelTime = curLabel->heuLength + iterAdj->second.tempWeight[timeInt];
+            assert(heuNewTravelTime >= 0);
+
+            if (heuDistances[iterAdj->first] > heuNewTravelTime)
+            {
+                if (labels[iterAdj->first] == nullptr)
+                {
+                    labels[iterAdj->first] = new Label(iterAdj->first, 0, labels[curLabel->node_id]);
+                } else
+                {
+                    labels[iterAdj->first]->previous = labels[curLabel->node_id];
+                }
+                labels[iterAdj->first]->heuLength = heuNewTravelTime;
+                heuDistances[iterAdj->first] = heuNewTravelTime;
+                queue.update(labels[iterAdj->first]);
+            }
+        }
+    }
+    cout << "target not  found :" << source << " - " << target << endl;
+    assert(curLabel->node_id == target);
+}
+
+void Traffic::deleteLabels(vector<RequestId> &reqs)
+{
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * reqs.size() / threadNum);
+    for (int i = 0; i < threadNum; ++i)
+    {
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end >= reqs.size())
+            end = reqs.size();
+        tGroup.create_thread(boost::bind(&Traffic::rangeTempDij, this, boost::ref(reqs), begin, end));
+    }
+    tGroup.join_all();
+}
+
+void Traffic::rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end)
+{
+    for (int idx = begin; idx < end; idx ++)
+    {
+        vector<Label *> &labels = labelCollection[reqs[idx]];
+        for (auto &label:labels)
+        {
+            delete label;
+            label = nullptr;
+        }
+    }
+}
+
+void Traffic::rangeDeleteLabels(vector<Label *> &labels, int begin, int end)
+{
+    for (NodeId i = 0; i <= rN.numNodes; i++)
+    {
+        delete labels[i];
+        labels[i] = nullptr;
     }
 }
 
@@ -71,7 +194,8 @@ long long int Traffic::simulateTraffic()
     for (RequestId i = 0; i < reqNo; i++)
     {
         Label *srcL = trajectories[i];
-        assert(srcL != nullptr);
+        if (srcL == nullptr)
+            continue;
         srcL->length = requestODs[i].departT; // re-start lengths for all requsts
 
         queue.update(srcL, i);
@@ -79,7 +203,6 @@ long long int Traffic::simulateTraffic()
         Label *label = srcL;
         while (label->nextL != nullptr)
         {
-            clearEdgeProfile(label->node_id, label->nextL->node_id);
             benchmark2::heapEval<2> _queue(reqNo);
             signList[Edge(label->node_id, label->nextL->node_id)] = _queue;
             label = label->nextL;
@@ -133,13 +256,13 @@ long long int Traffic::simulateTraffic()
         {
             // leave from current edge, enter next edge, record the time that leaves next edge
             long long cost = costFunc(
-                    trafficStat[curL->node_id][curL->nextL->node_id].weight,
+                    trafficStat[curL->node_id][curL->nextL->node_id].baseCost,
                     trafficStat[curL->node_id][curL->nextL->node_id].liveFlow, capacity);
 
             curL->nextL->length = curL->length + cost; // did update length of our labels arrival time of curL.nextL
             queue.update(curL->nextL, i);
 
-            //sort reqs on running on edge (cur, curNext) by their leaving time
+            // sort reqs on running on edge (cur, curNext) by their arriving time
             signList[Edge(curL->node_id, curL->nextL->node_id)].update(curL->nextL, i);
             trafficStat[curL->node_id][curL->nextL->node_id].liveFlow += 1; // enters this edge
         } else
@@ -165,47 +288,106 @@ long long int Traffic::simulateTraffic()
     return totalC;
 }
 
-void Traffic::rankReqsByOverFlowETs(
-        vector<long long int> &reqColli, benchmark2::heapSelectQ<2, long long int, RequestId> &reqHeap, vector<ET> &overflowETs)
+void Traffic::updateTraversedET()
 {
-    for (const auto &et: overflowETs)
+    for (RequestId requestId = 0; requestId < reqNo; requestId++)
     {
-        for (const auto &request: trafficStat[et.v1][et.v2].tempReqs[et.i])
+        if (trajectories[requestId] == nullptr)
+            continue;
+        auto *curLabel = trajectories[requestId];
+
+        while (curLabel->nextL != nullptr)
         {
-            if (reqColli[request] < 0)
-                continue;
-            reqColli[request] += 1;
-            reqHeap.update(request, reqColli[request]);
+            TimeIntIdx timeInt1 = floor(curLabel->length / timeReslo);
+            TimeIntIdx timeInt2 = floor(curLabel->nextL->length / timeReslo);
+
+            for (TimeIntIdx i = timeInt1; i < timeInt2; i++)
+            {
+                assert(i < timeIntNum);
+                traversedEdges[Edge(curLabel->node_id, curLabel->nextL->node_id)].emplace_back(
+                        make_pair(i, requestId));
+            }
+            curLabel = curLabel->nextL;
         }
     }
 }
 
-void Traffic::UpdateTrafficFlow(RequestId request, vector<ET> &overflowETs)
+void Traffic::updateTrafficLoading()
 {
-    auto *curLabel = trajectories[request];
-    assert(curLabel != nullptr);
+    updateTraversedET();
+    vector<Edge> record;
+    record.reserve(traversedEdges.size());
+    for (const auto &i: traversedEdges)
+        record.emplace_back(i.first);
 
-    while (curLabel->nextL != nullptr)
+    updateETProfiles(record);
+
+    updateHeuWeight(record);
+    traversedEdges.clear();
+}
+
+void Traffic::updateETProfiles(vector<Edge> &record)
+{
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * record.size() / threadNum);
+    for (int i = 0; i < this->threadNum; ++i)
     {
-        clearEdgeProfile(curLabel->node_id, curLabel->nextL->node_id);
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end > record.size())
+            end = record.size();
+        tGroup.create_thread(boost::bind(
+                &Traffic::updateRangeETProfiles, this, boost::ref(record), begin, end));
+    }
+    tGroup.join_all();
+}
 
-        TimeIntIdx timeInt1 = floor(curLabel->length / timeReslo);
-        TimeIntIdx timeInt2 = floor(curLabel->nextL->length / timeReslo);
+void Traffic::updateRangeETProfiles(vector<Edge> &record, int begin, int end)
+{
+    for (int j = begin; j < end; j++)
+    {
+        Edge e = record[j];
+        NodeId v1 = e.first, v2 = e.second;
 
-        for (TimeIntIdx i = timeInt1; i <= timeInt2; i++)
+        for (const auto &pair: traversedEdges[e])
         {
-            assert(i < timeIntNum);
-            traversedEdges[Edge(curLabel->node_id, curLabel->nextL->node_id)].insert(i);
-            trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempFlow[i] += 1;
-            trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempReqs[i].insert(request);
-
-            int roadId = rN.edgeMap[curLabel->node_id][curLabel->nextL->node_id];
-            if (rN.capacity[roadId] == trafficStat[curLabel->node_id][curLabel->nextL->node_id].tempFlow[i])
-            {
-                overflowETs.emplace_back(ET(curLabel->node_id, curLabel->nextL->node_id, i));
-            }
+            TimeIntIdx i = pair.first;
+            RequestId req = pair.second;
+            trafficStat[v1][v2].tempFlow[i] += 1;
+            trafficStat[v1][v2].tempReqs[i].insert(req);
         }
-        curLabel = curLabel->nextL;
+    }
+}
+
+void Traffic::updateHeuWeight(vector<Edge> &record)
+{
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * record.size() / threadNum);
+    for (int i = 0; i < this->threadNum; ++i)
+    {
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end > record.size())
+            end = record.size();
+        tGroup.create_thread(boost::bind(
+                &Traffic::updateRangeHeuWeight, this, boost::ref(record), begin, end));
+    }
+    tGroup.join_all();
+}
+
+void Traffic::updateRangeHeuWeight(vector<Edge> &record, int begin, int end)
+{
+    for (int j = begin; j < end; j++)
+    {
+        Edge e = record[j];
+        NodeId v1 = e.first, v2 = e.second;
+        for (const auto &pair: traversedEdges[e])
+        {
+            TimeIntIdx i = pair.first;
+            int flow = trafficStat[v1][v2].tempFlow[i];
+            assert (flow > 0);
+            int roadId = rN.edgeMap[v1][v2];
+            long long int cost = costFunc(trafficStat[v1][v2].baseCost, flow, rN.capacity[roadId]);
+            trafficStat[v1][v2].tempWeight[i] = cost;
+        }
     }
 }
 
@@ -233,31 +415,6 @@ void Traffic::delTrajectoryInRN(RequestId request, vector<ET> &newUnderflowEdges
     }
 }
 
-void Traffic::updateHeuWeights()
-{
-    // update et based on edge cost for further temporalDij
-    for (const auto &et: traversedEdges)
-    {
-        for (const auto &i: et.second)
-        {
-            int flow = trafficStat[et.first.first][et.first.second].tempFlow[i];
-            if (flow == 0)
-                continue;
-
-            // do not unblock blocked edges
-            if (trafficStat[et.first.first][et.first.second].modified[i])
-                continue;
-
-            int roadId = rN.edgeMap[et.first.first][et.first.second];
-            // does not necessarily, because we only ensure at each time instance flow is under capacity, not each time interval
-            // assert(flow <= rN.capacity[roadId]);
-            long long int cost = costFunc(
-                    trafficStat[et.first.first][et.first.second].weight, flow, rN.capacity[roadId]);
-            trafficStat[et.first.first][et.first.second].tempWeight[i] = cost * 0.1; // to avoid
-        }
-    }
-}
-
 long long int Traffic::costFunc(int baseCost, int edgeFlow, int capacity) const
 {
     long long int cost = floor((baseCost * (1 + 0.15 * pow(penalR * edgeFlow / capacity, 4))));
@@ -265,14 +422,50 @@ long long int Traffic::costFunc(int baseCost, int edgeFlow, int capacity) const
     return cost;
 }
 
-void Traffic::clearEdgeProfile(NodeId v1, NodeId v2)
+void Traffic::clearEdgeProfile()
+{
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * reqNo / threadNum);
+    for (int i = 0; i < threadNum; i++)
+    {
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end >= reqNo)
+            end = reqNo;
+        tGroup.create_thread(boost::bind(&Traffic::rangeClearEdgeProfile, this, begin, end));
+    }
+    tGroup.join_all();
+}
+
+void Traffic::rangeClearEdgeProfile(int begin, int end)
+{
+    for (int i = begin; i < end; i++)
+    {
+        Label *curLabel = labelCollection[i][requestODs[i].o]; // trajectories[i] of reroute i is null
+        while (curLabel->nextL != nullptr)
+        {
+            NodeId v1 = curLabel->node_id, v2 = curLabel->nextL->node_id;
+            assert(rN.edgeMap[v1].find(v2) != rN.edgeMap[v1].end());
+            if (rN.edgeSM[rN.edgeMap[v1][v2]].isLocked())
+            {
+                curLabel = curLabel->nextL;
+                continue;
+            }
+            rN.edgeSM[rN.edgeMap[v1][v2]].wait();
+            clearAnEdgeProfile(v1, v2);
+            curLabel = curLabel->nextL;
+            rN.edgeSM[rN.edgeMap[v1][v2]].notify();
+        }
+    }
+}
+
+void Traffic::clearAnEdgeProfile(NodeId v1, NodeId v2)
 {
     vector<unordered_set<RequestId>> s(timeIntNum);
     trafficStat[v1][v2].tempReqs.swap(s);
     trafficStat[v1][v2].liveFlow = 0;
     fill(trafficStat[v1][v2].tempFlow.begin(),
          trafficStat[v1][v2].tempFlow.end(), 0);
-    int weight = trafficStat[v1][v2].weight;
+    int weight = trafficStat[v1][v2].baseCost;
     fill(trafficStat[v1][v2].tempWeight.begin(),
          trafficStat[v1][v2].tempWeight.end(), weight);
 }

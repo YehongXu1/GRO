@@ -14,14 +14,17 @@ private:
     unordered_map<RequestId, vector<Path>> candidates;
     int selectAPath(RequestId req);
     Label* pathToLabel(Path &path);
+    void getCandiPaths();
     long long int cost = INT_MAX;
+    int k;
+    double theta;
 public:
 
-    KSPAlloc(Traffic &traffic, const basic_string<char> &paths);
     explicit KSPAlloc(Traffic &traffic, int k, double theta);
     void assignPath();
     long long int getCost();
 
+    void getCandiPaths(int begin, int end);
 };
 
 

@@ -83,79 +83,6 @@ pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source,
     return make_pair(resPath, distances);
 }
 
-vector<Label *> dijkstra_label_timedep(
-        vector<unordered_map<NodeId, EdgeFlowInfo>> &trafficStat,
-        int timeReslo, int timeIntNum, NodeId source, NodeId target)
-{
-    benchmark::heapDij<2> queue(trafficStat.size());
-
-    unordered_map<NodeId, EdgeFlowInfo>::iterator iterAdj;
-
-    long long int heuNewTravelTime;
-
-    vector<long long int> heuDistances(trafficStat.size(), INT_MAX);
-
-    heuDistances[source] = 0;
-
-    vector<bool> visited(trafficStat.size(), false);
-    vector<Label *> labels(trafficStat.size(), nullptr);
-    auto *curLabel = new Label(source, 0);
-    curLabel->heuLength = 0;
-    queue.update(curLabel);
-    labels[source] = new Label();
-
-    while (!queue.empty())
-    {
-        queue.extract_min(curLabel);
-        if (curLabel->node_id == target)
-        {
-            Label *ll = curLabel;
-            while (ll->previous != nullptr)
-            {
-                ll->previous->nextL = ll;
-                ll = ll->previous;
-            }
-            return labels;
-        }
-
-        visited[curLabel->node_id] = true;
-
-        int timeInt = floor(curLabel->heuLength / timeReslo);
-
-        if (timeInt >= timeIntNum)
-            cout << timeInt << endl;
-        assert(timeInt < timeIntNum);
-
-        assert(labels[curLabel->node_id] != nullptr);
-        labels[curLabel->node_id]->copy(curLabel);
-
-        for (iterAdj = trafficStat[curLabel->node_id].begin();
-             iterAdj != trafficStat[curLabel->node_id].end(); iterAdj++)
-        {
-            if (visited[iterAdj->first])
-                continue;
-
-            heuNewTravelTime = curLabel->heuLength + iterAdj->second.tempWeight[timeInt];
-            assert(heuNewTravelTime >= 0);
-
-            if (heuDistances[iterAdj->first] > heuNewTravelTime)
-            {
-                if (labels[iterAdj->first] == nullptr)
-                {
-                    labels[iterAdj->first] = new Label(iterAdj->first, 0, labels[curLabel->node_id]);
-                } else
-                {
-                    labels[iterAdj->first]->previous = labels[curLabel->node_id];
-                }
-                labels[iterAdj->first]->heuLength = heuNewTravelTime;
-                heuDistances[iterAdj->first] = heuNewTravelTime;
-                queue.update(labels[iterAdj->first]);
-            }
-        }
-    }
-    assert(cout << "target not  found" << endl);
-    return labels;
-}
 
 int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target)
 {
@@ -207,7 +134,7 @@ int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target)
 
 bool randomBool(int trialNum, double sucRateEachTrial)
 {
-    // sucRateEachTrial: prob not to add weight
+    // sucRateEachTrial: prob not to add baseCost
     random_device rd;
     mt19937 gen(rd());
     // give "true" sucRateEachTrial of the time

@@ -145,11 +145,11 @@ namespace benchmark
         // A struct defining a heap element.
         struct element_t
         {
-            Label* label{};
+            Label *label{};
 
             element_t() : label() {}
 
-            explicit element_t(Label* label) : label(label){}
+            explicit element_t(Label *label) : label(label) {}
         };
 
         // Constructor of the heap.
@@ -172,7 +172,7 @@ namespace benchmark
         }
 
         // Extract min element.
-        inline void extract_min(Label * &inputLabel)
+        inline void extract_min(Label *&inputLabel)
         {
             assert(!empty());
 
@@ -192,7 +192,7 @@ namespace benchmark
             }
         }
 
-        inline Label* top()
+        inline Label *top()
         {
             assert(!empty());
 
@@ -215,6 +215,7 @@ namespace benchmark
         // Update an element of the heap.
         inline void update(Label *label)
         {
+            assert(label->node_id < position.size());
             if (position[label->node_id] == NULLINDEX)
             {
                 element_t &back = elements[n];
@@ -319,7 +320,7 @@ namespace benchmark
         }
 
         // Swap two elements in the heap.
-        inline void swap(const  int i, const int j)
+        inline void swap(const int i, const int j)
         {
             element_t &el_i = elements[i];
             element_t &el_j = elements[j];
@@ -357,10 +358,9 @@ typedef priority_queue<Label *, std::vector<Label *>, AstarComparator> PriorityQ
 
 pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source, NodeId target);
 
-vector<Label *> dijkstra_label_timedep(
-        vector<unordered_map<NodeId, EdgeFlowInfo>> &trafficStat, int timeReslo,
-        int timeIntNum, NodeId source, NodeId target);
-
+//void tempDij(vector<unordered_map<NodeId, EdgeProfile>> &trafficStat, vector<Label *> &labels,
+//                            int timeReslo, int timeIntNum, NodeId source, NodeId target);
+//
 int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target);
 
 Path astar_limited(RoadNetwork *rN, NodeId source, NodeId target, vector<int> &bounds,

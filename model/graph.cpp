@@ -27,8 +27,11 @@ RoadNetwork::RoadNetwork(const char *filename)
             this->numEdges = rnode;
             this->adjListOut = vector<EdgeList>(this->numNodes + 1);
             this->adjListInc = vector<EdgeList>(this->numNodes + 1);
-            this->adjListInHeu = vector<EdgeList>(this->numNodes + 1);
             this->capacity.resize(this->numEdges + 1);
+
+            std::vector<Semaphore> sms(numEdges + 1);
+            this->edgeSM.swap(sms);
+
             this->edgeMap = vector<EdgeList>(this->numNodes + 1);
 
         } else
@@ -40,7 +43,6 @@ RoadNetwork::RoadNetwork(const char *filename)
             this->edgeMap[lnode][rnode] = roadId;
             this->adjListInc[rnode][lnode] = w;
 
-            this->adjListInHeu[rnode][lnode] = w;
             this->capacity[roadId] = c;
         }
     }
@@ -61,10 +63,12 @@ RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
             this->numEdges = rnode;
             this->adjListOut = vector<EdgeList>(this->numNodes + 1);
             this->adjListInc = vector<EdgeList>(this->numNodes + 1);
-            this->adjListInHeu = vector<EdgeList>(this->numNodes + 1);
             this->capacity.resize(this->numEdges + 1);
             this->edgeMap = vector<EdgeList>(this->numNodes + 1);
 
+            this->capacity.resize(numEdges + 1);
+            std::vector<Semaphore> sms(numEdges + 1);
+            this->edgeSM.swap(sms);
         } else
         {
             if (lnode > this->numNodes || rnode > this->numNodes)
@@ -74,8 +78,8 @@ RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
             this->edgeMap[lnode][rnode] = roadId;
             this->adjListInc[rnode][lnode] = w;
 
-            this->adjListInHeu[rnode][lnode] = w;
             this->capacity[roadId] = c;
+            this->edgeSM[roadId].initialize(1);
         }
     }
     infile.close();
@@ -94,11 +98,6 @@ RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
 int RoadNetwork::getEdgeWeight(NodeId lnode, NodeId rnode)
 {
     return this->adjListOut[lnode][rnode];
-}
-
-void RoadNetwork::adjustWeight(NodeId lnode, NodeId rnode, int increment)
-{
-    adjListInHeu[rnode][lnode] += increment;
 }
 
 float RoadNetwork::distance(Coord p1, Coord p2)

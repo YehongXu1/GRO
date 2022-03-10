@@ -20,24 +20,11 @@ public:
 private:
     Traffic &traffic;
 
-    unordered_set<RequestId> selectRerouteReqsFixPaths(
-            vector<long long int> &reqColli, benchmark2::heapSelectQ<2, long long int, RequestId> &reqHeap, int selectedP);
-
-    unordered_set<RequestId> selectReqsBasedOnETCnt(
-            vector<long long int> &reqCNT, benchmark2::heapSelectQ<2, long long int, RequestId> &reqHeap,
-            int selectNum);
+    vector<RequestId> selectRerouteReqsFixPaths(vector<RequestId> &reqs, double frac);
 
     // return ETs become underflow by due to removal of this request from traffic
 
-    void blockOverflowETs(vector<ET> &overflowETs);
-
-    void blockOverflowETsRandom(vector<ET> &overflowETs);
-
-    void doubleWeightOverflowETsRandom(vector<ET> &overflowETs);
-
-    void zeroWeighOverflowETs(vector<ET> &overflowETs);
-
-    unordered_set<RequestId> selectRerouteReqsUnfixPaths(vector<long long int> &reqColli, int selectedP);
+    vector<RequestId> selectRerouteReqsUnfixPaths(double frac);
 };
 
 

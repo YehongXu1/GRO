@@ -452,35 +452,27 @@ class Traffic
 public:
     vector<Request> requestODs; // request's s-t
     RoadNetwork &rN;
-    int reqNo = 1000, timeIntNum = 1000, timeReslo = 100, penalR = 10;
+    int reqNo = 1000, timeIntNum = 1000, timeReslo = 100, penalR = 10, threadNum = 50;
 
     vector<Label *> trajectories;
     vector<vector<Label *>> labelCollection;
-    vector<unordered_map<NodeId, EdgeFlowInfo>> trafficStat;
-    unordered_map<Edge, unordered_set<TimeIntIdx>, hash_edge> traversedEdges;
+    vector<unordered_map<NodeId, EdgeProfile>> trafficStat;
+    unordered_map<Edge, vector<pair<TimeIntIdx , RequestId>>, hash_edge> traversedEdges;
 
-    Traffic(RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo, int penalR);
+    Traffic(RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo, int penalR, int threadNum);
 
-    void temporalDij(unordered_set<RequestId> &reqs);
+    void allTempDij(vector<RequestId> &reqs);
 
-    void deleteLabels(RequestId req);
+    void rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end);
 
     void writeSetting(const basic_string<char> &path, const basic_string<char> &rNName) const;
 
-    // return overflow ETs resulted by adding this path to traffic
-    void UpdateTrafficFlow(RequestId req, vector<ET> &overflowETs);
-
-    void rankReqsByOverFlowETs(
-            vector<long long int> &reqColli, benchmark2::heapSelectQ<2, long long int, RequestId> &reqHeap,
-            vector<ET> &overflowETs);
-
     void delTrajectoryInRN(RequestId request, vector<ET> &newUnderflowEdges);
 
-    void updateHeuWeights();
-
-    void clearEdgeProfile(NodeId v1, NodeId v2);
+    void clearEdgeProfile();
 
     [[nodiscard]] long long int costFunc(int baseCost, int edgeFlow, int capacity) const;
+    void tempDij(RequestId requestId);
 
     void writeTrajectories(const basic_string<char> &path);
 
@@ -488,6 +480,29 @@ public:
 
     long long int simulateTraffic();
 
+    void initialize(int i, int interval);
+
+    void rangeTempDij(vector<RequestId> &reqs, int begin, int end);
+
+    void rangeDeleteLabels(vector<Label *> &labels, int begin, int end);
+
+    void rangeClearEdgeProfile(int begin, int end);
+
+    void clearAnEdgeProfile(NodeId v1, NodeId v2);
+
+    void updateETProfiles(vector<Edge> &edge);
+
+    void updateRangeETProfiles(vector<Edge> &edge, int begin, int end);
+
+    void updateHeuWeight(vector<Edge> &record);
+
+    void updateTrafficLoading();
+
+    void updateTraversedET();
+
+    void updateRangeHeuWeight(vector<Edge> &record, int begin, int end);
+
+    void deleteLabels(vector<RequestId> &reqs);
 };
 
 #endif //TRAFFIC_ASSIGNMENT_TRAFFIC_H

@@ -3,7 +3,6 @@
 #include "traffic/Traffic.h"
 #include "traffic/Routing.h"
 #include "KSP/kspwlo.h"
-#include "boost/thread/thread.hpp"
 #include "baseline/KSPAlloc.h"
 #include <random>
 #include <chrono>
@@ -26,7 +25,7 @@ vector<NodeId> getNodesInR(Coord &center, int r, RoadNetwork &rN)
 }
 
 vector<Request> createRequests(
-        RoadNetwork &rN, Coord sCenter, Coord tCenter, int r1, int r2, int rep)
+        RoadNetwork &rN, Coord sCenter, Coord tCenter, int r1, int r2)
 {
     vector<Request> requestODs;
     vector<NodeId> sources = getNodesInR(sCenter, r1, rN);
@@ -38,17 +37,6 @@ vector<Request> createRequests(
             requestODs.emplace_back(Request(source, target, 0));
         }
     }
-
-    int reqNo = requestODs.size();
-
-    for (int j = 1; j < rep; j++)
-    {
-        for (RequestId i = 1; i < reqNo; i++)
-        {
-            requestODs.emplace_back(requestODs[i]);
-        }
-    }
-
     return requestODs;
 }
 
@@ -135,41 +123,58 @@ int getRandInt(int range)
     return distr(gen);
 }
 
-void runBaseLine(RoadNetwork &rN, vector<Request> &requestODs, const basic_string<char> &output,
-                 int timeIntNum, int timeResolution, int penalR)
+void runBaseLine(RoadNetwork &rN, vector<Request> &requestODs, int k, double theta,
+                 int timeIntNum, int timeResolution, int penalR, int threadNum)
 {
-    Traffic traffic(rN, requestODs, timeIntNum, timeResolution, penalR);
-    writeEsxPaths(traffic, 10);
-    KSPAlloc kspAlloc(traffic, output);
-    kspAlloc.assignPath();
-    cout << "random allocation cost: " << kspAlloc.getCost() << endl;
+    Traffic traffic(rN, requestODs, timeIntNum, timeResolution, penalR, threadNum);
 
+    chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+    KSPAlloc kspAlloc(traffic, k, theta);
+
+    kspAlloc.assignPath();
+    chrono::steady_clock::time_point end = chrono::steady_clock::now();
+    cout << "random allocation cost: " << kspAlloc.getCost() << endl;
+    cout << "baseline consumes " << chrono::duration_cast<chrono::seconds>(end - begin).count()
+         << "[s] for " << traffic.reqNo << " ods" << endl;
+}
+
+void runBaseLine(RoadNetwork &rN, Coord &sc, Coord &tc, int k, int r, double theta,
+                 int timeIntNum, int timeResolution, int penalR, int threadNum)
+{
+    vector<Request> requestODs = createRequests(rN, sc, tc, r, r);
+    cout << "\nreqNo: " << requestODs.size() << endl;
+    runBaseLine(rN, requestODs, k, theta, timeIntNum, timeResolution, penalR, threadNum);
 }
 
 void runMyAlg(RoadNetwork &rN, vector<Request> &requestODs,
-              int timeIntNum, int timeResolution, int penalR, double frac, bool fix)
+              int timeIntNum, int timeResolution, int penalR, double frac, bool fix, int threadNum)
 {
-    Traffic traffic(rN, requestODs, timeIntNum, timeResolution, penalR);
-    Routing simulation(traffic);
+    Traffic traffic(rN, requestODs, timeIntNum, timeResolution, penalR, threadNum);
+    Routing routing(traffic);
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-    long long int cost = simulation.mainAlg(frac, fix);
+    long long int cost = routing.mainAlg(frac, fix);
     chrono::steady_clock::time_point end = chrono::steady_clock::now();
-
-    cout << "global routing cost: " << cost << endl;
     cout << "time difference = " << chrono::duration_cast<chrono::seconds>(end - begin).count() << "[s]" << endl;
-    for (RequestId i = 0; i < requestODs.size(); i++)
-    {
-        traffic.deleteLabels(i);
-    }
+    vector<RequestId> reqs;
+    boost::push_back(reqs, boost::irange(0, traffic.reqNo));
+    traffic.deleteLabels(reqs);
 }
 
 void runMyAlg(RoadNetwork &rN, pair<NodeId, NodeId> &od,
-              int timeIntNum, int timeResolution, int penalR, int r, double frac, bool fix)
+              int timeIntNum, int timeResolution, int penalR, int r, double frac, bool fix, int threadNum)
 {
     vector<Request> requestODs = createRequests(rN, od.first, od.second, r, r);
     cout << "\nreqNo: " << requestODs.size() << endl;
-    runMyAlg(rN, requestODs, timeIntNum, timeResolution, penalR, frac, fix);
+    runMyAlg(rN, requestODs, timeIntNum, timeResolution, penalR, frac, fix, threadNum);
+}
+
+void runMyAlg(RoadNetwork &rN, Coord &o, Coord &d,
+              int timeIntNum, int timeResolution, int penalR, int r, double frac, bool fix, int threadNum)
+{
+    vector<Request> requestODs = createRequests(rN, o, d, r, r);
+    cout << "\nreqNo: " << requestODs.size() << endl;
+    runMyAlg(rN, requestODs, timeIntNum, timeResolution, penalR, frac, fix, threadNum);
 }
 
 vector<pair<NodeId, NodeId>> readSeedOds(const basic_string<char> &seedOdPath)
@@ -190,28 +195,27 @@ int main()
     string basepath1 = "/media/TraminerData/yehong_ziyi/global_routing/input/";
     string basepath2 = "/media/bigdata/s4451682/Yehong/";
     string basepath3 = "/Users/xyh/Desktop/traffic-assignment/data/";
-    string map = basepath2 + "BJ_map.txt";
-    string coords = basepath2 + "BJ_NodeIDLonLat.txt";
+
+    string basepath = basepath3;
+    string map = basepath + "BJ_map.txt";
+    string coords = basepath + "BJ_NodeIDLonLat.txt";
 
     string queryset = "seedod10";
-    string inputSeedOd = basepath2 + queryset + ".txt";
-    int r = 200, penalR = 10, timeResolution = 300, timeIntNum = 1500;
+    string inputSeedOd = basepath + queryset + ".txt";
+    int r = 500, penalR = 10, timeResolution = 600, timeIntNum = 2000, threadNum = 50;
     double frac = 0.3;
     bool fix = true;
     RoadNetwork rN(map.c_str(), coords.c_str());
-    cout<< "qeury: " << queryset << " r: " << r << " penalR: " << penalR << " frac: " << frac << " fix:" << fix << endl;
-    vector<pair<NodeId, NodeId>> seedODs = readSeedOds(inputSeedOd);
+    cout << "qeury: " << queryset << " r: " << r << " penalR: " << penalR << " frac: " << frac << " fix:" << fix
+        << " timeIntNum: " << timeIntNum << " timeResolution: " << timeResolution << endl;
 
-    int threadNum = 40;
-    boost::thread_group tGroup;
-    for (int i = 0; i < threadNum; ++i)
-    {
-        pair<NodeId, NodeId> od = seedODs[i];
-        tGroup.create_thread(boost::bind(
-                &runMyAlg, rN, od, timeIntNum, timeResolution, penalR, r, frac, fix));
-    }
-    tGroup.join_all();
+//    vector<pair<NodeId, NodeId>> seedODs = readSeedOds(inputSeedOd);
+//    for (auto &seedOD: seedODs)
+//        runMyAlg(runMyAlgrN, seedOD, timeIntNum, timeResolution, penalR, r, frac, fix, threadNum);
 
+    Coord sc(116.207, 40.091), tc(116.518, 39.8754);
+    runMyAlg(rN, sc, tc, timeIntNum, timeResolution, penalR, r, frac, fix, threadNum);
 
+//    runBaseLine(rN, sc, tc, 10, r, 0.75, timeIntNum, timeResolution, penalR, threadNum);
     return 0;
 }
