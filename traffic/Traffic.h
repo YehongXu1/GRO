@@ -104,10 +104,21 @@ namespace benchmark2
                 {
                     el.label = label;
                     shift_down(el_pos);
-                } else
+                } else if (label->length < el.label->length)
                 {
                     el.label = label;
                     shift_up(el_pos);
+                } else
+                {
+                    if (req > el.req)
+                    {
+                        el.label = label;
+                        shift_down(el_pos);
+                    } else
+                    {
+                        el.label = label;
+                        shift_up(el_pos);
+                    }
                 }
             }
         }
@@ -124,8 +135,15 @@ namespace benchmark2
                 int parent_i = (cur_i - 1) >> log_k;
                 if (elements[parent_i].label->length > elements[cur_i].label->length)
                     swap(cur_i, parent_i);
-                else
+                else if (elements[parent_i].label->length < elements[cur_i].label->length)
                     break;
+                else
+                {
+                    if (elements[parent_i].req > elements[cur_i].req)
+                        swap(cur_i, parent_i);
+                    else
+                        break;
+                }
                 cur_i = parent_i;
             }
         }
@@ -139,6 +157,7 @@ namespace benchmark2
             {
                 int min_ind = i;
                 key_t min_key = elements[i].label->length;
+                RequestId min_req = elements[i].req;
 
                 int child_ind_l = (i << log_k) + 1;
                 int child_ind_u = std::min(child_ind_l + k, n);
@@ -149,6 +168,15 @@ namespace benchmark2
                     {
                         min_ind = j;
                         min_key = elements[j].label->length;
+                        min_req = elements[j].req;
+                    } else if (elements[j].label->length == min_key)
+                    {
+                        if (elements[j].req < min_req)
+                        {
+                            min_ind = j;
+                            min_req = elements[j].req;
+//                            min_key = elements[j].label->length;
+                        }
                     }
                 }
 

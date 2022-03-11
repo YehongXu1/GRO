@@ -10,6 +10,16 @@
 
 using namespace std;
 
+int dTRange = 0;
+
+int getRandInt(int range)
+{
+    random_device rd; // obtain a random number from hardware
+    mt19937 gen(rd()); // seed the generator
+    uniform_int_distribution<> distr(0, range); // define the range
+    return distr(gen);
+}
+
 vector<NodeId> getNodesInR(Coord &center, int r, RoadNetwork &rN)
 {
     vector<NodeId> v;
@@ -34,7 +44,7 @@ vector<Request> createRequests(
     {
         for (unsigned int &target: targets)
         {
-            requestODs.emplace_back(Request(source, target, 0));
+            requestODs.emplace_back(Request(source, target, getRandInt(dTRange)));
         }
     }
     return requestODs;
@@ -50,7 +60,7 @@ vector<Request> createRequests(
     {
         for (unsigned int &target: targets)
         {
-            requestODs.emplace_back(Request(source, target, 0));
+            requestODs.emplace_back(Request(source, target, getRandInt(dTRange)));
         }
     }
 
@@ -113,14 +123,6 @@ vector<Path> writeEsxPaths(Traffic &traffic, int k)
          << "[s] for " << traffic.reqNo << " ods" << endl;
 
     return paths;
-}
-
-int getRandInt(int range)
-{
-    random_device rd; // obtain a random number from hardware
-    mt19937 gen(rd()); // seed the generator
-    uniform_int_distribution<> distr(0, range); // define the range
-    return distr(gen);
 }
 
 void runBaseLine(RoadNetwork &rN, vector<Request> &requestODs, int k, double theta,
@@ -206,16 +208,15 @@ int main()
     double frac = 0.3;
     bool fix = true;
     RoadNetwork rN(map.c_str(), coords.c_str());
-    cout << "qeury: " << queryset << " r: " << r << " penalR: " << penalR << " frac: " << frac << " fix:" << fix
+    cout << "qeury: " << queryset << " dtRange: " << dTRange << " r: " << r << " penalR: " << penalR << " frac: " << frac << " fix:" << fix
         << " timeIntNum: " << timeIntNum << " timeResolution: " << timeResolution << endl;
 
 //    vector<pair<NodeId, NodeId>> seedODs = readSeedOds(inputSeedOd);
 //    for (auto &seedOD: seedODs)
-//        runMyAlg(runMyAlgrN, seedOD, timeIntNum, timeResolution, penalR, r, frac, fix, threadNum);
+//        runMyAlg(rN, seedOD, timeIntNum, timeResolution, penalR, r, frac, fix, threadNum);
 
     Coord sc(116.207, 40.091), tc(116.518, 39.8754);
     runMyAlg(rN, sc, tc, timeIntNum, timeResolution, penalR, r, frac, fix, threadNum);
 
-//    runBaseLine(rN, sc, tc, 10, r, 0.75, timeIntNum, timeResolution, penalR, threadNum);
     return 0;
 }

@@ -77,6 +77,7 @@ void Traffic::tempDij(RequestId requestId)
     vector<Label *> &labels = labelCollection[requestId];
 
     NodeId source = requestODs[requestId].o, target = requestODs[requestId].d;
+    int departT = requestODs[requestId].departT;
 
     benchmark::heapDij<2> queue(trafficStat.size());
 
@@ -86,11 +87,11 @@ void Traffic::tempDij(RequestId requestId)
 
     vector<long long int> heuDistances(trafficStat.size(), INT_MAX);
 
-    heuDistances[source] = 0;
+    heuDistances[source] = departT;
 
     vector<bool> visited(trafficStat.size(), false);
     auto *curLabel = new Label(source, 0);
-    curLabel->heuLength = 0;
+    curLabel->heuLength = departT;
     queue.update(curLabel);
     labels[source] = curLabel;
 
@@ -148,42 +149,6 @@ void Traffic::tempDij(RequestId requestId)
     assert(curLabel->node_id == target);
 }
 
-void Traffic::deleteLabels(vector<RequestId> &reqs)
-{
-    boost::thread_group tGroup;
-    int interval = ceil(1.0 * reqs.size() / threadNum);
-    for (int i = 0; i < threadNum; ++i)
-    {
-        int begin = i * interval, end = (i + 1) * interval;
-        if (end >= reqs.size())
-            end = reqs.size();
-        tGroup.create_thread(boost::bind(&Traffic::rangeTempDij, this, boost::ref(reqs), begin, end));
-    }
-    tGroup.join_all();
-}
-
-void Traffic::rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end)
-{
-    for (int idx = begin; idx < end; idx ++)
-    {
-        vector<Label *> &labels = labelCollection[reqs[idx]];
-        for (auto &label:labels)
-        {
-            delete label;
-            label = nullptr;
-        }
-    }
-}
-
-void Traffic::rangeDeleteLabels(vector<Label *> &labels, int begin, int end)
-{
-    for (NodeId i = 0; i <= rN.numNodes; i++)
-    {
-        delete labels[i];
-        labels[i] = nullptr;
-    }
-}
-
 long long int Traffic::simulateTraffic()
 {
     traversedEdges.clear();
@@ -204,6 +169,7 @@ long long int Traffic::simulateTraffic()
         while (label->nextL != nullptr)
         {
             benchmark2::heapEval<2> _queue(reqNo);
+            assert(trafficStat[label->node_id][label->nextL->node_id].liveFlow == 0);
             signList[Edge(label->node_id, label->nextL->node_id)] = _queue;
             label = label->nextL;
         }
@@ -216,29 +182,14 @@ long long int Traffic::simulateTraffic()
     while (!queue.empty())
     {
         queue.extract_min(curL, i);
-
         if (curL->previous != nullptr)
         {
             benchmark2::heapEval<2> &_queue = signList[Edge(curL->previous->node_id, curL->node_id)];
             assert(!_queue.empty());
             // here we need to ensure that current req is extracted
-            vector<pair<Label *, RequestId>> buffer;
-            long long int minLen = INT_MAX;
-            while (true)
-            {
-                _queue.extract_min(curLS, j);
-                if (curLS->length < minLen)
-                    minLen = curLS->length;
-                if (i == j)
-                    break;
-                buffer.emplace_back(curLS, j);
-            }
-            for (const auto &pair: buffer)
-            {
-                _queue.update(pair.first, pair.second);
-            }
-            assert(curL->node_id == curLS->node_id);
-            assert(curL->length == curLS->length && curL->length == minLen);
+            _queue.extract_min(curLS, j);
+            assert (i == j);
+            assert(curL->length == curLS->length && curL->length == curLS->length);
             trafficStat[curL->previous->node_id][curL->node_id].liveFlow -= 1; // leaves previous edge, may reassign later
         } else
         {
@@ -247,7 +198,7 @@ long long int Traffic::simulateTraffic()
 
         if (curL->nextL == nullptr)
         {
-            totalC += curL->length;
+            totalC += curL->length - requestODs[i].departT;
             continue;
         }
 
@@ -271,10 +222,8 @@ long long int Traffic::simulateTraffic()
             benchmark2::heapEval<2> _queue = signList[Edge(curL->node_id, curL->nextL->node_id)];
             assert(_queue.size() == capacity);
             _queue.top(curLS, j); // curLS.previous.nodeId = curL.nodeId;
-            assert(curLS->length >= curL->length);
             requestODs[i].waitTimes += curLS->length - curL->length + 1;
-            curL->length =
-                    curLS->length + 1; // add 1 is to avoid non-stop recursive, to wait until a car leaves the edge
+            curL->length = curLS->length + 1; // add 1 is to avoid non-stop recursive, to wait until a car leaves the edge
             queue.update(curL, i);
 
             if (curL->previous != nullptr) // this request should re-sign this edge
@@ -286,6 +235,42 @@ long long int Traffic::simulateTraffic()
     }
 
     return totalC;
+}
+
+void Traffic::deleteLabels(vector<RequestId> &reqs)
+{
+    boost::thread_group tGroup;
+    int interval = ceil(1.0 * reqs.size() / threadNum);
+    for (int i = 0; i < threadNum; ++i)
+    {
+        int begin = i * interval, end = (i + 1) * interval;
+        if (end >= reqs.size())
+            end = reqs.size();
+        tGroup.create_thread(boost::bind(&Traffic::rangeTempDij, this, boost::ref(reqs), begin, end));
+    }
+    tGroup.join_all();
+}
+
+void Traffic::rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end)
+{
+    for (int idx = begin; idx < end; idx++)
+    {
+        vector<Label *> &labels = labelCollection[reqs[idx]];
+        for (auto &label: labels)
+        {
+            delete label;
+            label = nullptr;
+        }
+    }
+}
+
+void Traffic::rangeDeleteLabels(vector<Label *> &labels, int begin, int end)
+{
+    for (NodeId i = 0; i <= rN.numNodes; i++)
+    {
+        delete labels[i];
+        labels[i] = nullptr;
+    }
 }
 
 void Traffic::updateTraversedET()
