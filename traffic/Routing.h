@@ -12,7 +12,7 @@ class Routing
 public:
     explicit Routing(Traffic &traffic);
 
-    long long int mainAlg(double frac, bool fix);
+    void mainAlg(double frac, bool fix);
 
     void writeEdgeFlowDist(const basic_string<char> &path);
 
@@ -20,11 +20,17 @@ public:
 private:
     Traffic &traffic;
 
+    int curCost;
+
     vector<RequestId> selectRerouteReqsFixPaths(vector<RequestId> &reqs, double frac);
 
     // return ETs become underflow by due to removal of this request from traffic
 
     vector<RequestId> selectRerouteReqsUnfixPaths(double frac);
+
+    vector<RequestId> selectRerouteReqsCongET(double frac);
+
+    vector<RequestId> selectRerouteReqsCongET2(double frac);
 };
 
 

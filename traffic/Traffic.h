@@ -41,8 +41,7 @@ namespace benchmark2
         {
         }
 
-        heapEval()
-        = default;
+        heapEval() = default;
 
         // Size of the heap.
         [[nodiscard]] inline int size() const
@@ -123,6 +122,8 @@ namespace benchmark2
             }
         }
 
+        // Array of length heap_elements.
+        vector<element_t> elements;
     protected:
 
         // Sift up an element.
@@ -217,9 +218,6 @@ namespace benchmark2
         // Number of maximal elements.
         int max_n{};
 
-        // Array of length heap_elements.
-        vector<element_t> elements;
-
         // An array of positions for all elements.
         vector<int> position;
     };
@@ -288,24 +286,14 @@ namespace benchmark2
             }
         }
 
-        inline key_t top()
+        inline node_t top()
         {
-            assert(!empty());
-
-            element_t &front = elements[0];
-
-            return front.key;
-
-        }
-
-        inline node_t top_value()
-        {
-
             assert(!empty());
 
             element_t &front = elements[0];
 
             return front.element;
+
         }
 
         // Update an element of the heap.
@@ -463,35 +451,57 @@ struct ET
 
 struct Request
 {
+    RequestId id;
     NodeId o, d;
-    long long int waitTimes = 0, departT = 0;
+    int stuckTime = 0, stuckO = -1, stuckD = -1, preStatyAt = -1;
+    int sortBy = 0, departT = 0;
 
-    Request(NodeId o, NodeId d, int departT)
+    Request(RequestId i, NodeId o, NodeId d, int departT)
     {
+        this->id = i;
         this->o = o;
         this->d = d;
         this->departT = departT;
     }
 };
 
+struct CongInfo
+{
+    int id, t1 = -1, t2 = -1;
+    NodeId v1, v2;
+    unordered_set<RequestId> relatedReqs;
+    double thresCnt;
+
+    CongInfo(int id, NodeId v1, NodeId v2, double thresCnt, int t1, int t2 = -1)
+    {
+        this->id = id;
+        this->v1 = v1;
+        this->v2 = v2;
+        this->thresCnt = thresCnt;
+        this->t1 = t1;
+        this->t2 = t2;
+    }
+};
 
 class Traffic
 {
 public:
     vector<Request> requestODs; // request's s-t
     RoadNetwork &rN;
+    double threshold;
     int reqNo = 1000, timeIntNum = 1000, timeReslo = 100, penalR = 10, threadNum = 50;
 
     vector<Label *> trajectories;
     vector<vector<Label *>> labelCollection;
     vector<unordered_map<NodeId, EdgeProfile>> trafficStat;
-    unordered_map<Edge, vector<pair<TimeIntIdx , RequestId>>, hash_edge> traversedEdges;
+    unordered_map<Edge, list<CongInfo>, hash_edge> edgeCongList; //
+    vector<unordered_set<CongInfo *>> reqCongCnt;
+    unordered_map<Edge, unordered_set<TimeIntIdx>, hash_edge> traversedEdges;
+    unordered_map<Edge, vector<vector<RequestId>>, hash_edge> stuckODs;
 
-    Traffic(RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo, int penalR, int threadNum);
+    Traffic(RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo, int penalR, int threadNum, double threshold);
 
     void allTempDij(vector<RequestId> &reqs);
-
-    void rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end);
 
     void writeSetting(const basic_string<char> &path, const basic_string<char> &rNName) const;
 
@@ -499,20 +509,19 @@ public:
 
     void clearEdgeProfile();
 
-    [[nodiscard]] long long int costFunc(int baseCost, int edgeFlow, int capacity) const;
+    [[nodiscard]] int costFunc(int baseCost, int edgeFlow, int capacity) const;
+
     void tempDij(RequestId requestId);
 
     void writeTrajectories(const basic_string<char> &path);
 
     void writeCollision(const basic_string<char> &path, vector<Edge> &overflowEdges);
 
-    long long int simulateTraffic();
+    int simulateTraffic();
 
     void initialize(int i, int interval);
 
     void rangeTempDij(vector<RequestId> &reqs, int begin, int end);
-
-    void rangeDeleteLabels(vector<Label *> &labels, int begin, int end);
 
     void rangeClearEdgeProfile(int begin, int end);
 
@@ -528,9 +537,20 @@ public:
 
     void updateTraversedET();
 
-    void updateRangeHeuWeight(vector<Edge> &record, int begin, int end);
+    void updateWeight(vector<Edge> &record, int begin, int end);
+
+    void rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end);
 
     void deleteLabels(vector<RequestId> &reqs);
+
+    bool detectCycles();
+
+    void detectCycleRec(NodeId o, unordered_set<NodeId> recS, bool &breakOut, unordered_map<NodeId, bool> &visited,
+                        unordered_map<NodeId, unordered_set<NodeId>> &adjList);
+
+    void rangeClearReqCngs(int begin, int end);
+
+    void clearReqCngs();
 };
 
 #endif //TRAFFIC_ASSIGNMENT_TRAFFIC_H

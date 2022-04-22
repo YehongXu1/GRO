@@ -9,16 +9,15 @@
 #include "../traffic/Traffic.h"
 class KSPAlloc
 {
-private:
-    Traffic traffic;
-    unordered_map<RequestId, vector<Path>> candidates;
+public:
+    Traffic &traffic;
+    vector<vector<Path>> candidates;
     int selectAPath(RequestId req);
     Label* pathToLabel(Path &path);
     void getCandiPaths();
     long long int cost = INT_MAX;
     int k;
     double theta;
-public:
 
     explicit KSPAlloc(Traffic &traffic, int k, double theta);
     void assignPath();

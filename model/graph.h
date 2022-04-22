@@ -44,9 +44,8 @@ typedef int TimeIntIdx;
 struct EdgeProfile
 {
     int liveFlow = 0, baseCost = -1; // total liveFlow
-    vector<unordered_set<RequestId>> tempReqs;
     vector<int> tempFlow;
-    vector<long long int> tempWeight;
+    vector<int> tempWeight;
     EdgeProfile() = default;
 };
 

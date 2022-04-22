@@ -51,6 +51,7 @@ RoadNetwork::RoadNetwork(const char *filename)
 
 RoadNetwork::RoadNetwork(const char *filename, const char *filename1)
 {
+
     ifstream infile(filename);
     int roadId, lnode, rnode;
     int line_cnt = 0, w = 0, c= 0;

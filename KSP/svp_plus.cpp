@@ -473,6 +473,5 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
             return completeness_function(rN, candidatePaths, k, globalMin);
         }
     }
-
-    return make_pair(resPaths, theta);
+    return make_pair(resPathsFinal, theta);
 }

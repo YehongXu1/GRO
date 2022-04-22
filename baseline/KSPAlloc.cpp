@@ -7,9 +7,10 @@
 
 KSPAlloc::KSPAlloc(Traffic &traffic, int k, double theta) : traffic(traffic)
 {
-    cout << "ksp initialization" << endl;
     this->k = k;
     this->theta = theta;
+    vector<Path> v;
+    candidates.assign(traffic.reqNo, v);
     getCandiPaths();
 }
 

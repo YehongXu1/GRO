@@ -25,8 +25,7 @@ class Label
 {
 public:
     NodeId node_id;
-    long long int length = 0;
-    long long int heuLength = 0;
+    int length; // departure time
     int lowerBound;
     Label *previous;
     Label *nextL = nullptr;
@@ -35,7 +34,6 @@ public:
     {
         this->node_id = -1;
         this->length = -1;
-        this->heuLength = -1;
         this->previous = nullptr;
         this->nextL = nullptr;
         this->lowerBound = -1;
@@ -46,7 +44,6 @@ public:
         // copy
         this->node_id = label->node_id;
         this->length = label->length;
-        this->heuLength = label->heuLength;
         this->previous = label->previous;
         this->lowerBound = label->lowerBound;
         this->nextL = label->nextL;
@@ -83,16 +80,6 @@ public:
         this->previous = previous;
         this->lowerBound = lowerBound;
     };
-
-    void copy(Label *label)
-    {
-        this->node_id = label->node_id;
-        this->length = label->length;
-        this->heuLength = label->heuLength;
-        this->nextL = label->nextL;
-        this->previous = label->previous;
-        this->lowerBound = label->lowerBound;
-    }
 };
 
 class MyComparator
@@ -130,109 +117,117 @@ namespace benchmark
 
 #define NULLINDEX 0xFFFFFFFF
 
-    template<int log_k>
-    class heapDij
+    template<int log_k, typename k_t, typename id_t>
+    class heap
     {
 
     public:
 
         // Expose types.
+        typedef k_t key_t;
+        typedef id_t node_t;
 
         // Some constants regarding the elements.
         //static const node_t NULLINDEX = 0xFFFFFFFF;
-        static const int k = 1 << log_k;
+        static const node_t k = 1 << log_k;
 
         // A struct defining a heap element.
         struct element_t
         {
-            Label *label{};
+            key_t key;
+            node_t element;
 
-            element_t() : label() {}
+            element_t() : key(0), element(0) {}
 
-            explicit element_t(Label *label) : label(label) {}
+            element_t(const key_t k, const node_t e) : key(k), element(e) {}
         };
 
+
+    public:
+
         // Constructor of the heap.
-        explicit heapDij(int n) : n(0), max_n(n), elements(n), position(n, NULLINDEX)
+        explicit heap(node_t n) : n(0), max_n(n), elements(n), position(n, NULLINDEX)
         {
         }
 
-        heapDij() = default;
+        heap()
+        = default;
 
         // Size of the heap.
-        [[nodiscard]] inline int size() const
+        inline node_t size() const
         {
             return n;
         }
 
         // Heap empty?
-        [[nodiscard]] inline bool empty() const
+        inline bool empty() const
         {
             return size() == 0;
         }
 
         // Extract min element.
-        inline void extract_min(Label *&inputLabel)
+        inline void extract_min(node_t &label, key_t &key)
         {
             assert(!empty());
 
             element_t &front = elements[0];
 
             // Assign element and key.
-            inputLabel = front.label;
+            label = front.element;
+            key = front.key;
 
             // Replace elements[0] by last element.
-            position[front.label->node_id] = NULLINDEX;
+            position[label] = NULLINDEX;
             --n;
             if (!empty())
             {
                 front = elements[n];
-                position[front.label->node_id] = 0;
+                position[front.element] = 0;
                 shift_down(0);
             }
         }
 
-        inline Label *top()
+        inline key_t top()
         {
             assert(!empty());
 
             element_t &front = elements[0];
 
-            return front.label;
+            return front.key;
 
         }
 
-        inline int top_value()
+        inline node_t top_value()
         {
 
             assert(!empty());
 
             element_t &front = elements[0];
 
-            return front.label->heuLength;
+            return front.element;
         }
 
         // Update an element of the heap.
-        inline void update(Label *label)
+        inline void update(const node_t element, const key_t key)
         {
-            assert(label->node_id < position.size());
-            if (position[label->node_id] == NULLINDEX)
+            if (position[element] == NULLINDEX)
             {
                 element_t &back = elements[n];
-                back.label = label;
-                position[label->node_id] = n;
+                back.key = key;
+                back.element = element;
+                position[element] = n;
                 shift_up(n++);
             } else
             {
-                int el_pos = position[label->node_id];
+                node_t el_pos = position[element];
                 element_t &el = elements[el_pos];
-                if (label->heuLength > el.label->heuLength)
+                if (key > el.key)
                 {
-                    el.label = label;
+                    el.key = key;
                     shift_down(el_pos);
                 } else
                 {
-                    el.label = label;
+                    el.key = key;
                     shift_up(el_pos);
                 }
             }
@@ -242,15 +237,15 @@ namespace benchmark
         // Clear the heap.
         inline void clear()
         {
-            for (int i = 0; i < n; ++i)
+            for (node_t i = 0; i < n; ++i)
             {
-                position[elements[i].label->node_id] = NULLINDEX;
+                position[elements[i].element] = NULLINDEX;
             }
             n = 0;
         }
 
         // Cheaper clear.
-        inline void clear(NodeId v)
+        inline void clear(node_t v)
         {
             position[v] = NULLINDEX;
         }
@@ -260,24 +255,25 @@ namespace benchmark
             n = 0;
         }
 
+
         // Test whether an element is contained in the heap.
-        [[nodiscard]] inline bool contains(const NodeId v) const
+        inline bool contains(const node_t element) const
         {
-            return position[v] != NULLINDEX;
+            return position[element] != NULLINDEX;
         }
 
 
     protected:
 
         // Sift up an element.
-        inline void shift_up(int i)
+        inline void shift_up(node_t i)
         {
             assert(i < n);
-            int cur_i = i;
+            node_t cur_i = i;
             while (cur_i > 0)
             {
-                int parent_i = (cur_i - 1) >> log_k;
-                if (elements[parent_i].label->heuLength > elements[cur_i].label->heuLength)
+                node_t parent_i = (cur_i - 1) >> log_k;
+                if (elements[parent_i].key > elements[cur_i].key)
                     swap(cur_i, parent_i);
                 else
                     break;
@@ -286,24 +282,24 @@ namespace benchmark
         }
 
         // Sift down an element.
-        inline void shift_down(int i)
+        inline void shift_down(node_t i)
         {
             assert(i < n);
 
             while (true)
             {
-                int min_ind = i;
-                key_t min_key = elements[i].label->heuLength;
+                node_t min_ind = i;
+                key_t min_key = elements[i].key;
 
-                unsigned int child_ind_l = (i << log_k) + 1;
-                unsigned int child_ind_u = std::min(child_ind_l + k, n);
+                node_t child_ind_l = (i << log_k) + 1;
+                node_t child_ind_u = std::min(child_ind_l + k, n);
 
-                for (int j = child_ind_l; j < child_ind_u; ++j)
+                for (node_t j = child_ind_l; j < child_ind_u; ++j)
                 {
-                    if (elements[j].label->heuLength < min_key)
+                    if (elements[j].key < min_key)
                     {
                         min_ind = j;
-                        min_key = elements[j].label->heuLength;
+                        min_key = elements[j].key;
                     }
                 }
 
@@ -320,14 +316,14 @@ namespace benchmark
         }
 
         // Swap two elements in the heap.
-        inline void swap(const int i, const int j)
+        inline void swap(const node_t i, const node_t j)
         {
             element_t &el_i = elements[i];
             element_t &el_j = elements[j];
 
             // Exchange positions
-            position[el_i.label->node_id] = j;
-            position[el_j.label->node_id] = i;
+            position[el_i.element] = j;
+            position[el_j.element] = i;
 
             // Exchange elements
             element_t temp = el_i;
@@ -339,16 +335,16 @@ namespace benchmark
     private:
 
         // Number of elements in the heap.
-        unsigned int n{};
+        node_t n;
 
         // Number of maximal elements.
-        unsigned int max_n{};
+        node_t max_n;
 
         // Array of length heap_elements.
         vector<element_t> elements;
 
         // An array of positions for all elements.
-        vector<int> position;
+        vector<node_t> position;
     };
 }
 

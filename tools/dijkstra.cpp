@@ -1,4 +1,5 @@
 #include "tools.h"
+
 #include <random>
 
 /*
@@ -16,29 +17,29 @@
 pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source, NodeId target)
 {
     unsigned int count = 0;
-//    PriorityQueue queue;
-    benchmark::heapDij<2> queue(rN->numNodes + 1);
-
+    PriorityQueue queue;
     Path resPath;
     int newLength = 0;
     EdgeList::iterator iterAdj;
-
-    vector<int> distances(rN->numNodes + 1, INT_MAX);
-    vector<bool> visited(rN->numNodes + 1);
+    vector<int> distances(rN->numNodes, INT_MAX);
+    vector<bool> visited(rN->numNodes);
     Label *targetLabel = nullptr;
     distances[target] = 0;
     vector<Label *> allCreatedLabels;
     auto *srcLabel = new Label(target, newLength);
-    queue.update(srcLabel);
+    queue.push(srcLabel);
     allCreatedLabels.push_back(srcLabel);
 
-    auto *curLabel = new Label();
     while (!queue.empty())
     {
-        queue.extract_min(curLabel);
-//        queue.pop();
+        Label *curLabel = queue.top();
+        queue.pop();
+
+        if (visited[curLabel->node_id])
+            continue;
 
         visited[curLabel->node_id] = true;
+        distances[curLabel->node_id] = curLabel->length;
 
         if (curLabel->node_id == source)
         { // Destination has been found
@@ -51,8 +52,6 @@ pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source,
             }
         }
 
-        auto *newPrevious = new Label(curLabel);
-
         if (++count == rN->numNodes)
             break;
 
@@ -62,72 +61,76 @@ pair<Path, vector<int>> dijkstra_path_and_bounds(RoadNetwork *rN, NodeId source,
             for (iterAdj = rN->adjListInc[curLabel->node_id].begin();
                  iterAdj != rN->adjListInc[curLabel->node_id].end(); iterAdj++)
             {
-                if (visited[iterAdj->first])
-                    continue;
                 newLength = curLabel->length + iterAdj->second;
-
+                Label *newPrevious = curLabel;
                 if (distances[iterAdj->first] > newLength)
                 {
                     auto *label = new Label(iterAdj->first, newLength, newPrevious);
                     allCreatedLabels.push_back(label);
-                    distances[iterAdj->first] = newLength;
-                    queue.update(label);
+                    queue.push(label);
                 }
             }
         }
     }
-
-    for (auto &allCreatedLabel: allCreatedLabels)
+    for (auto & allCreatedLabel : allCreatedLabels)
         delete allCreatedLabel;
 
     return make_pair(resPath, distances);
 }
 
-
 int dijkstra_dist_del(RoadNetwork *rN, NodeId source, NodeId target)
 {
-    int newLength = 0, resDist = -1;
+    PriorityQueue queue;
+    int newLength = 0;
+    int resDist = -1;
     EdgeList::iterator iterAdj;
-
-    benchmark::heapDij<2> heap(rN->numNodes + 1);
-    vector<int> distances(rN->numNodes + 1, INT_MAX);
-    vector<bool> visited(rN->numNodes + 1);
-    auto *curLabel = new Label(-1, -1);
+    vector<int> distances(rN->numNodes, INT_MAX);
+    vector<bool> visited(rN->numNodes);
+    Label *targetLabel = nullptr;
     distances[target] = 0;
+    vector<Label *> allCreatedLabels;
     auto *srcLabel = new Label(target, newLength);
-    heap.update(srcLabel);
+    queue.push(srcLabel);
+    allCreatedLabels.push_back(srcLabel);
 
-    while (!heap.empty())
+    while (!queue.empty())
     {
-        heap.extract_min(curLabel);
+        Label *curLabel = queue.top();
+        queue.pop();
+
+        if (visited[curLabel->node_id])
+            continue;
 
         visited[curLabel->node_id] = true;
         distances[curLabel->node_id] = curLabel->length;
 
         if (curLabel->node_id == source)
         { // Destination has been found
+            targetLabel = curLabel;
             resDist = curLabel->length;
-            return resDist;
+            break;
         } else
         { // Expand search
             // For each incoming edge.
             for (iterAdj = rN->adjListInc[curLabel->node_id].begin();
                  iterAdj != rN->adjListInc[curLabel->node_id].end(); iterAdj++)
             {
-                if (visited[iterAdj->first])
+                if ((source == curLabel->node_id && target == iterAdj->first) ||
+                    (target == curLabel->node_id && source == iterAdj->first))
                     continue;
-
                 newLength = curLabel->length + iterAdj->second;
                 Label *newPrevious = curLabel;
                 if (distances[iterAdj->first] > newLength)
                 {
                     auto *label = new Label(iterAdj->first, newLength, newPrevious);
-                    distances[iterAdj->first] = newLength;
-                    heap.update(label);
+                    allCreatedLabels.push_back(label);
+                    queue.push(label);
                 }
             }
         }
     }
+    for (auto & allCreatedLabel : allCreatedLabels)
+        delete allCreatedLabel;
 
     return resDist;
 }
