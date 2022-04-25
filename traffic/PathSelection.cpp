@@ -1,55 +1,10 @@
 //
-// Created by yehong.xu on 1/2/2022.
+// Created by yehong.xu on 25/4/2022.
 //
 
-#include "Routing.h"
+#include "Traffic.h"
 
-Routing::Routing(Traffic &traffic) : traffic(traffic) {}
-
-void Routing::mainAlg(double frac, bool fix)
-{
-    vector<RequestId> reqs;
-    boost::push_back(reqs, boost::irange(0, traffic.reqNo));
-
-    int iteration = 0;
-
-    while (true)
-    {
-        // reroute reqs that are selected to be rerouted
-        traffic.allTempDij(reqs);
-        // evaluation is based on entire traffic
-        curCost = traffic.simulateTraffic();
-        // evaluate travel cost based on new traffic state
-        cout << iteration << "," << reqs.size() << "," << curCost << endl;
-
-        if (curCost == -1)
-        {
-            cout << iteration << "," << reqs.size() << "," << -1 << endl;
-            return;
-        }
-
-        if (fix)
-        {
-            reqs = selectRerouteReqsFixPaths(reqs, frac); // fix some routes
-            if (reqs.empty())
-                break;
-        } else
-        {
-            reqs = selectRerouteReqsCongET2(frac);
-//            reqs = selectRerouteReqsUnfixPaths(frac); // select from all reqs
-            if (iteration == 20)
-                break;
-        }
-
-        traffic.clearEdgeProfile();
-        traffic.updateTrafficLoading();
-        traffic.deleteLabels(reqs);
-        traffic.clearReqCngs();
-        iteration += 1;
-    }
-}
-
-vector<RequestId> Routing::selectRerouteReqsFixPaths(vector<int> &reqs, double frac)
+vector<RequestId> PathSelection::selectRerouteReqsFixPaths(TrafficMaintain &traffic, vector<int> &reqs, double frac)
 {
     benchmark2::heapSelectQ<2, int, RequestId> reqHeap(traffic.reqNo);
 
@@ -71,7 +26,7 @@ vector<RequestId> Routing::selectRerouteReqsFixPaths(vector<int> &reqs, double f
     return rerouteReqs;
 }
 
-vector<RequestId> Routing::selectRerouteReqsUnfixPaths(double frac)
+vector<RequestId> PathSelection::selectRerouteReqsUnfixPaths(TrafficMaintain &traffic, double frac)
 {
     benchmark2::heapSelectQ<2, int, RequestId> myReqHeap(traffic.reqNo);
     for (RequestId i = 0; i < traffic.reqNo; i++)
@@ -91,7 +46,7 @@ vector<RequestId> Routing::selectRerouteReqsUnfixPaths(double frac)
     return rerouteReqs;
 }
 
-vector<RequestId> Routing::selectRerouteReqsCongET(double frac)
+vector<RequestId> PathSelection::selectRerouteReqsCongET(TrafficMaintain &traffic, double frac)
 {
     // from req perspective
     benchmark2::heapSelectQ<2, int, RequestId> myReqHeap(traffic.reqNo);
@@ -155,7 +110,7 @@ vector<RequestId> Routing::selectRerouteReqsCongET(double frac)
     return selectedReqs;
 }
 
-vector<RequestId> Routing::selectRerouteReqsCongET2(double frac)
+vector<RequestId> PathSelection::selectRerouteReqsCongET2(TrafficMaintain &traffic, double frac)
 {
     // from congestion site perspective, this one seems better
     int cnt = 0;

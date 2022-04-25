@@ -1,7 +1,7 @@
 #include <iostream>
 
 #include "traffic/Traffic.h"
-#include "traffic/Routing.h"
+#include "traffic/routingMain.cpp"
 #include "KSP/kspwlo.h"
 #include "baseline/KSPAlloc.h"
 #include <random>
@@ -89,7 +89,7 @@ vector<Request> createRequests(RoadNetwork &rN, const basic_string<char> &input)
     return requestODs;
 }
 
-vector<Path> writeEsxPaths(Traffic &traffic, int k)
+vector<Path> writeEsxPaths(TrafficMaintain &traffic, int k)
 {
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
     vector<Path> paths;
@@ -134,7 +134,7 @@ vector<Path> writeEsxPaths(Traffic &traffic, int k)
 void runBaseLine(RoadNetwork &rN, vector<Request> &requestODs, int k, double theta,
                  int timeIntNum, int timeResolution, int penalR, int threadNum, double threshold)
 {
-    Traffic traffic(rN, requestODs, timeIntNum, timeResolution, penalR, threadNum, threshold);
+    TrafficMaintain traffic(rN, requestODs, timeIntNum, timeResolution, penalR, threadNum, threshold);
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
     KSPAlloc kspAlloc(traffic, k, theta);
@@ -165,11 +165,10 @@ void runBaseLine(RoadNetwork &rN, pair<NodeId, NodeId> seedOd, int k, int r, dou
 void runMyAlg(RoadNetwork &rN, vector<Request> &requestODs,
               int timeIntNum, int timeResolution, int penalR, double frac, bool fix, int threadNum, double threshold)
 {
-    Traffic traffic(rN, requestODs, timeIntNum, timeResolution, penalR, threadNum, threshold);
-    Routing routing(traffic);
+    TrafficMaintain traffic(rN, requestODs, timeIntNum, timeResolution, penalR, threadNum, threshold);
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-    routing.mainAlg(frac, fix);
+    routingMain(traffic, frac, fix);
     chrono::steady_clock::time_point end = chrono::steady_clock::now();
     cout << "time difference[s] = " << chrono::duration_cast<chrono::seconds>(end - begin).count() << endl;
     vector<RequestId> reqs;
@@ -214,7 +213,7 @@ int main()
     string basepath2 = "/media/bigdata/s4451682/Yehong/";
     string basepath3 = "/Users/xyh/Desktop/traffic-assignment/data/";
 
-    string basepath = basepath2;
+    string basepath = basepath3;
     string map = basepath + "BJ_map.txt";
     string coords = basepath + "BJ_NodeIDLonLat.txt";
 

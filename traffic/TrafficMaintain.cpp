@@ -5,9 +5,9 @@
 #include "Traffic.h"
 #include <fstream>
 
-Traffic::Traffic(RoadNetwork &rN, vector<Request> &requestMap,
-                 int timeIntNum, int timeReslo, int penalR, int threadNum, double threshold) : rN(rN),
-                                                                                               requestODs(requestMap)
+TrafficMaintain::TrafficMaintain(
+        RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo,
+        int penalR, int threadNum, double threshold) : rN(rN), requestODs(requestMap)
 {
     this->timeIntNum = timeIntNum;
     this->timeReslo = timeReslo;
@@ -26,7 +26,7 @@ Traffic::Traffic(RoadNetwork &rN, vector<Request> &requestMap,
         int begin = i * interval, end = (i + 1) * interval;
         if (end > rN.numNodes + 1)
             end = rN.numNodes + 1;
-        tGroup.create_thread(boost::bind(&Traffic::initialize, this, begin, end));
+        tGroup.create_thread(boost::bind(&TrafficMaintain::initialize, this, begin, end));
     }
     tGroup.join_all();
 
@@ -38,7 +38,7 @@ Traffic::Traffic(RoadNetwork &rN, vector<Request> &requestMap,
     labelCollection.assign(reqNo, v);
 }
 
-void Traffic::initialize(int begin, int end)
+void TrafficMaintain::initialize(int begin, int end)
 {
     for (int idx = begin; idx < end; idx++)
     {
@@ -51,7 +51,7 @@ void Traffic::initialize(int begin, int end)
     }
 }
 
-void Traffic::allTempDij(vector<RequestId> &reqs)
+void TrafficMaintain::allTempDij(vector<RequestId> &reqs)
 {
     boost::thread_group tGroup;
     int interval = ceil(1.0 * reqs.size() / threadNum);
@@ -61,12 +61,12 @@ void Traffic::allTempDij(vector<RequestId> &reqs)
         if (end >= reqs.size())
             end = reqs.size();
         tGroup.create_thread(boost::bind(
-                &Traffic::rangeTempDij, this, boost::ref(reqs), begin, end));
+                &TrafficMaintain::rangeTempDij, this, boost::ref(reqs), begin, end));
     }
     tGroup.join_all();
 }
 
-void ::Traffic::rangeTempDij(vector<RequestId> &reqs, int begin, int end)
+void ::TrafficMaintain::rangeTempDij(vector<RequestId> &reqs, int begin, int end)
 {
     for (int i = begin; i < end; i++)
     {
@@ -74,7 +74,7 @@ void ::Traffic::rangeTempDij(vector<RequestId> &reqs, int begin, int end)
     }
 }
 
-void Traffic::tempDij(RequestId requestId)
+void TrafficMaintain::tempDij(RequestId requestId)
 {
     NodeId source = requestODs[requestId].o, target = requestODs[requestId].d;
     int departT = requestODs[requestId].departT;
@@ -149,7 +149,7 @@ void Traffic::tempDij(RequestId requestId)
     assert(curNode == target);
 }
 
-bool Traffic::detectCycles()
+bool TrafficMaintain::detectCycles()
 {
     unordered_map<NodeId, unordered_set<NodeId>> adjList(rN.numNodes + 1);
     unordered_set<NodeId> nset;
@@ -196,9 +196,9 @@ bool Traffic::detectCycles()
     return false;
 }
 
-void Traffic::detectCycleRec(NodeId o, unordered_set<NodeId> recS, bool &breakOut,
-                             unordered_map<NodeId, bool> &visited,
-                             unordered_map<NodeId, unordered_set<NodeId>> &adjList)
+void TrafficMaintain::detectCycleRec(NodeId o, unordered_set<NodeId> recS, bool &breakOut,
+                                     unordered_map<NodeId, bool> &visited,
+                                     unordered_map<NodeId, unordered_set<NodeId>> &adjList)
 {
     if (breakOut)
         return;
@@ -221,7 +221,7 @@ void Traffic::detectCycleRec(NodeId o, unordered_set<NodeId> recS, bool &breakOu
     }
 }
 
-int Traffic::simulateTraffic()
+int TrafficMaintain::simulateTraffic()
 {
     int tempThreshold = 180;
 
@@ -370,7 +370,7 @@ int Traffic::simulateTraffic()
     return totalC;
 }
 
-void Traffic::clearEdgeProfile()
+void TrafficMaintain::clearEdgeProfile()
 {
     boost::thread_group tGroup;
     int interval = ceil(1.0 * reqNo / threadNum);
@@ -379,7 +379,7 @@ void Traffic::clearEdgeProfile()
         int begin = i * interval, end = (i + 1) * interval;
         if (end >= reqNo)
             end = reqNo;
-        tGroup.create_thread(boost::bind(&Traffic::rangeClearEdgeProfile, this, begin, end));
+        tGroup.create_thread(boost::bind(&TrafficMaintain::rangeClearEdgeProfile, this, begin, end));
     }
     tGroup.join_all();
 
@@ -388,7 +388,7 @@ void Traffic::clearEdgeProfile()
     stuckODs.clear();
 }
 
-void Traffic::rangeClearEdgeProfile(int begin, int end)
+void TrafficMaintain::rangeClearEdgeProfile(int begin, int end)
 {
     for (int i = begin; i < end; i++)
     {
@@ -415,7 +415,7 @@ void Traffic::rangeClearEdgeProfile(int begin, int end)
     }
 }
 
-void Traffic::clearAnEdgeProfile(NodeId v1, NodeId v2)
+void TrafficMaintain::clearAnEdgeProfile(NodeId v1, NodeId v2)
 {
 
     rN.edgeSM[rN.edgeMap[v1][v2]].wait();
@@ -430,7 +430,7 @@ void Traffic::clearAnEdgeProfile(NodeId v1, NodeId v2)
     edgeCongList[Edge(v1, v2)].clear();
 }
 
-void Traffic::updateTraversedET()
+void TrafficMaintain::updateTraversedET()
 {
     for (RequestId requestId = 0; requestId < reqNo; requestId++)
     {
@@ -454,7 +454,7 @@ void Traffic::updateTraversedET()
     }
 }
 
-void Traffic::updateTrafficLoading()
+void TrafficMaintain::updateTrafficLoading()
 {
     updateTraversedET();
     vector<Edge> record;
@@ -465,7 +465,7 @@ void Traffic::updateTrafficLoading()
     updateHeuWeight(record);
 }
 
-void Traffic::updateHeuWeight(vector<Edge> &record)
+void TrafficMaintain::updateHeuWeight(vector<Edge> &record)
 {
     boost::thread_group tGroup;
     int interval = ceil(1.0 * record.size() / threadNum);
@@ -475,12 +475,12 @@ void Traffic::updateHeuWeight(vector<Edge> &record)
         if (end > record.size())
             end = record.size();
         tGroup.create_thread(boost::bind(
-                &Traffic::updateWeight, this, boost::ref(record), begin, end));
+                &TrafficMaintain::updateWeight, this, boost::ref(record), begin, end));
     }
     tGroup.join_all();
 }
 
-void Traffic::updateWeight(vector<Edge> &record, int begin, int end)
+void TrafficMaintain::updateWeight(vector<Edge> &record, int begin, int end)
 {
     for (int j = begin; j < end; j++)
     {
@@ -496,14 +496,14 @@ void Traffic::updateWeight(vector<Edge> &record, int begin, int end)
     }
 }
 
-int Traffic::costFunc(int baseCost, int edgeFlow, int capacity) const
+int TrafficMaintain::costFunc(int baseCost, int edgeFlow, int capacity) const
 {
     int cost = floor((baseCost * (1 + 0.15 * pow(penalR * edgeFlow / capacity, 4))));
     assert(cost >= 0);
     return cost;
 }
 
-void Traffic::rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end)
+void TrafficMaintain::rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end)
 {
     for (int idx = begin; idx < end; idx++)
     {
@@ -516,7 +516,7 @@ void Traffic::rangeDeleteLabels(vector<RequestId> &reqs, int begin, int end)
     }
 }
 
-void Traffic::deleteLabels(vector<RequestId> &reqs)
+void TrafficMaintain::deleteLabels(vector<RequestId> &reqs)
 {
     boost::thread_group tGroup;
     int interval = ceil(1.0 * reqs.size() / threadNum);
@@ -526,12 +526,12 @@ void Traffic::deleteLabels(vector<RequestId> &reqs)
         if (end >= reqs.size())
             end = reqs.size();
         tGroup.create_thread(boost::bind(
-                &Traffic::rangeDeleteLabels, this, boost::ref(reqs), begin, end));
+                &TrafficMaintain::rangeDeleteLabels, this, boost::ref(reqs), begin, end));
     }
     tGroup.join_all();
 }
 
-void Traffic::rangeClearReqCngs(int begin, int end)
+void TrafficMaintain::rangeClearReqCngs(int begin, int end)
 {
     for (RequestId idx = begin; idx < end; idx++)
     {
@@ -540,7 +540,7 @@ void Traffic::rangeClearReqCngs(int begin, int end)
     }
 }
 
-void Traffic::clearReqCngs()
+void TrafficMaintain::clearReqCngs()
 {
     boost::thread_group tGroup;
     int interval = ceil(1.0 * reqNo / threadNum);
@@ -549,7 +549,7 @@ void Traffic::clearReqCngs()
         int begin = i * interval, end = (i + 1) * interval;
         if (end >= reqNo)
             end = reqNo;
-        tGroup.create_thread(boost::bind(&Traffic::rangeClearReqCngs, this, begin, end));
+        tGroup.create_thread(boost::bind(&TrafficMaintain::rangeClearReqCngs, this, begin, end));
     }
     tGroup.join_all();
 }

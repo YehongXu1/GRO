@@ -483,7 +483,7 @@ struct CongInfo
     }
 };
 
-class Traffic
+class TrafficMaintain
 {
 public:
     vector<Request> requestODs; // request's s-t
@@ -499,7 +499,7 @@ public:
     unordered_map<Edge, unordered_set<TimeIntIdx>, hash_edge> traversedEdges;
     unordered_map<Edge, vector<vector<RequestId>>, hash_edge> stuckODs;
 
-    Traffic(RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo, int penalR, int threadNum, double threshold);
+    TrafficMaintain(RoadNetwork &rN, vector<Request> &requestMap, int timeIntNum, int timeReslo, int penalR, int threadNum, double threshold);
 
     void allTempDij(vector<RequestId> &reqs);
 
@@ -551,6 +551,21 @@ public:
     void rangeClearReqCngs(int begin, int end);
 
     void clearReqCngs();
+};
+
+class PathSelection
+{
+
+public:
+    PathSelection() = default;
+
+    static vector<RequestId> selectRerouteReqsUnfixPaths(TrafficMaintain &traffic, double frac);
+
+    static vector<RequestId> selectRerouteReqsCongET(TrafficMaintain &traffic, double frac);
+
+    static vector<RequestId> selectRerouteReqsCongET2(TrafficMaintain &traffic, double frac);
+
+    static vector<RequestId> selectRerouteReqsFixPaths(TrafficMaintain &traffic, vector<int> &reqs, double frac);
 };
 
 #endif //TRAFFIC_ASSIGNMENT_TRAFFIC_H

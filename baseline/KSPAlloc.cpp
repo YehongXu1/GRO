@@ -5,7 +5,7 @@
 #include "KSPAlloc.h"
 #include "../KSP/kspwlo.h"
 
-KSPAlloc::KSPAlloc(Traffic &traffic, int k, double theta) : traffic(traffic)
+KSPAlloc::KSPAlloc(TrafficMaintain &traffic, int k, double theta) : traffic(traffic)
 {
     this->k = k;
     this->theta = theta;

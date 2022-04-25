@@ -10,7 +10,7 @@
 class KSPAlloc
 {
 public:
-    Traffic &traffic;
+    TrafficMaintain &traffic;
     vector<vector<Path>> candidates;
     int selectAPath(RequestId req);
     Label* pathToLabel(Path &path);
@@ -19,7 +19,7 @@ public:
     int k;
     double theta;
 
-    explicit KSPAlloc(Traffic &traffic, int k, double theta);
+    explicit KSPAlloc(TrafficMaintain &traffic, int k, double theta);
     void assignPath();
     long long int getCost();
 
