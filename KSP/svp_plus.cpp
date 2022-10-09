@@ -10,25 +10,20 @@ Copyright (c) 2017 Theodoros Chondrogiannis
 
 typedef pair<Label *, Label *> SvpLabel;
 
-class SvpLabelComparator
-{
+class SvpLabelComparator {
     bool reverse;
 public:
-    explicit SvpLabelComparator(const bool &revparam = false)
-    {
+    explicit SvpLabelComparator(const bool &revparam = false) {
         reverse = revparam;
     }
 
-    bool operator()(const SvpLabel lsl, const SvpLabel rsl) const
-    {
+    bool operator()(const SvpLabel lsl, const SvpLabel rsl) const {
         return lsl.first->length + lsl.second->length > rsl.first->length + rsl.second->length;
     }
 };
 
-struct PathComparator
-{
-    inline bool operator()(const Path &p1, const Path &p2)
-    {
+struct PathComparator {
+    inline bool operator()(const Path &p1, const Path &p2) {
         return (p1.length < p2.length);
     }
 } pComp;
@@ -41,21 +36,20 @@ typedef priority_queue<SvpLabel, std::vector<SvpLabel>, SvpLabelComparator> SvpL
  *
  */
 
-vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k, double theta)
-{
+vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k, double theta) {
     vector<Path> resPathsFinal;
     SvpLabelQueue svpQueue;
-    vector<pair<Label *, Label *>> svpLabels(rN->numNodes);
+    vector<pair<Label *, Label *>> svpLabels(rN->numNodes + 1);
 
-    vector<Path> resPaths(rN->numNodes, Path());
+    vector<Path> resPaths(rN->numNodes + 1, Path());
     vector<Path> resSimplePathsOrdered;
-    vector<int> resLabels(rN->numNodes, 0);
+    vector<int> resLabels(rN->numNodes + 1, 0);
 
     PriorityQueue queue;
     unsigned int newLength = 0;
     EdgeList::iterator iterAdj;
-    vector<NodeId> distancesF(rN->numNodes, INT_MAX);
-    vector<NodeId> distancesB(rN->numNodes, INT_MAX);
+    vector<NodeId> distancesF(rN->numNodes + 1, INT_MAX);
+    vector<NodeId> distancesB(rN->numNodes + 1, INT_MAX);
 
     Label *tempLabel = nullptr;
     distancesF[source] = 0;
@@ -67,8 +61,7 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
     allCreatedLabels.push_back(srcLabel);
     unsigned int nodeCount = 0;
 
-    while (!queue.empty())
-    {
+    while (!queue.empty()) {
         Label *curLabel = queue.top();
         queue.pop();
 
@@ -83,19 +76,16 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
         allCreatedLabels.push_back(svpLabels[curLabel->node_id].first);
 
         nodeCount++;
-        if (nodeCount == rN->numNodes)
+        if (nodeCount == rN->numNodes + 1)
             break;
 
-        else
-        { // Expand search
+        else { // Expand search
             // For each outgoing edge.
             for (iterAdj = rN->adjListOut[curLabel->node_id].begin();
-                 iterAdj != rN->adjListOut[curLabel->node_id].end(); iterAdj++)
-            {
+                 iterAdj != rN->adjListOut[curLabel->node_id].end(); iterAdj++) {
                 newLength = curLabel->length + iterAdj->second;
                 Label *newPrevious = curLabel;
-                if (distancesF[iterAdj->first] > newLength)
-                {
+                if (distancesF[iterAdj->first] > newLength) {
                     auto *label = new Label(iterAdj->first, newLength, newPrevious);
                     allCreatedLabels.push_back(label);
                     queue.push(label);
@@ -107,7 +97,7 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
     queue = PriorityQueue();
     assert(queue.empty());
 
-    vector<bool> visited(rN->numNodes, false);
+    vector<bool> visited(rN->numNodes + 1, false);
     tempLabel = nullptr;
     vector<NodeId> tempVetices;
     nodeCount = 0;
@@ -118,8 +108,7 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
     allCreatedLabels.push_back(svpLabels[target].second);
     allCreatedLabels.push_back(trgLabel);
 
-    while (!queue.empty())
-    {
+    while (!queue.empty()) {
         Label *curLabel = queue.top();
         queue.pop();
 
@@ -128,23 +117,21 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
 
         visited[curLabel->node_id] = true;
         distancesB[curLabel->node_id] = curLabel->length;
-        svpLabels[curLabel->node_id].second = new Label(curLabel->node_id, curLabel->length, curLabel->previous);
+        svpLabels[curLabel->node_id].second = new Label(
+                curLabel->node_id, curLabel->length, curLabel->previous);
         allCreatedLabels.push_back(svpLabels[curLabel->node_id].second);
 
         nodeCount++;
-        if (nodeCount == rN->numNodes)
+        if (nodeCount == rN->numNodes + 1)
             break;
 
-        else
-        { // Expand search
+        else { // Expand search
             // For each outgoing edge.
             for (iterAdj = rN->adjListInc[curLabel->node_id].begin();
-                 iterAdj != rN->adjListInc[curLabel->node_id].end(); iterAdj++)
-            {
+                 iterAdj != rN->adjListInc[curLabel->node_id].end(); iterAdj++) {
                 newLength = curLabel->length + iterAdj->second;
                 Label *newPrevious = curLabel;
-                if (distancesB[iterAdj->first] > newLength)
-                {
+                if (distancesB[iterAdj->first] > newLength) {
                     auto *label = new Label(iterAdj->first, newLength, newPrevious);
                     allCreatedLabels.push_back(label);
                     queue.push(label);
@@ -153,8 +140,7 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
         }
     }
     //sort(resSimplePathsOrdered.begin(),resSimplePathsOrdered.end());
-    for (unsigned int i = 0; i < rN->numNodes; i++)
-    {
+    for (unsigned int i = 0; i < rN->numNodes + 1; i++) {
         if (svpLabels[i].first == NULL || svpLabels[i].second == NULL)
             continue;
         svpQueue.push(svpLabels[i]);
@@ -165,31 +151,27 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
     sp.length = svpQueue.top().first->length + svpQueue.top().second->length;
     tempLabel = nullptr;
     tempLabel = svpQueue.top().first;
-    while (tempLabel != nullptr)
-    {
+    while (tempLabel != nullptr) {
         sp.nodes.push_back(tempLabel->node_id);
         tempLabel = tempLabel->previous;
     }
     reverse(sp.nodes.begin(), sp.nodes.end());
     tempLabel = svpQueue.top().second->previous;
-    while (tempLabel != nullptr)
-    {
+    while (tempLabel != nullptr) {
         sp.nodes.push_back(tempLabel->node_id);
         tempLabel = tempLabel->previous;
     }
     resPathsFinal.push_back(sp);
     svpQueue.pop();
 
-    while (resPathsFinal.size() < k && !svpQueue.empty())
-    {
+    while (resPathsFinal.size() < k && !svpQueue.empty()) {
         Path tempP;
         SvpLabel svpLabelCurrent = svpQueue.top();
 
         tempP.length = svpLabelCurrent.first->length + svpLabelCurrent.second->length;
         tempLabel = nullptr;
         tempLabel = svpLabelCurrent.first;
-        while (tempLabel != nullptr)
-        {
+        while (tempLabel != nullptr) {
             tempP.nodes.push_back(tempLabel->node_id);
             tempLabel = tempLabel->previous;
         }
@@ -197,12 +179,9 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
         tempLabel = svpLabelCurrent.second->previous;
         unsigned int index = tempP.nodes.size() - 1;
         bool check = true;
-        while (tempLabel != nullptr)
-        {
-            for (int i = index; i >= 0; i--)
-            {
-                if (tempP.nodes[i] == tempLabel->node_id)
-                {
+        while (tempLabel != nullptr) {
+            for (int i = index; i >= 0; i--) {
+                if (tempP.nodes[i] == tempLabel->node_id) {
                     check = false;
                     break;
                 }
@@ -218,16 +197,13 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
         if (!check)
             continue;
 
-        for (auto &k: resPathsFinal)
-        {
-            if (tempP.overlap_ratio(rN, k) > theta)
-            {
+        for (auto &k: resPathsFinal) {
+            if (tempP.overlap_ratio(rN, k) > theta) {
                 check = false;
                 break;
             }
         }
-        if (check)
-        {
+        if (check) {
             resPathsFinal.push_back(tempP);
             if (resPathsFinal.size() == k)
                 break;
@@ -244,24 +220,23 @@ vector<Path> svp_plus(RoadNetwork *rN, NodeId source, NodeId target, unsigned in
  *
  */
 
-pair<vector<Path>, double>
-svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k, double theta)
-{
+pair<vector<Path>, double> svp_plus_complete(
+        RoadNetwork *rN, NodeId source, NodeId target, unsigned int k, double theta) {
     vector<Path> resPathsFinal;
     vector<Path> candidatePaths;
     set<double> myThetas;
     SvpLabelQueue svpQueue;
-    vector<pair<Label *, Label *>> svpLabels(rN->numNodes);
+    vector<pair<Label *, Label *>> svpLabels(rN->numNodes + 1);
 
-    vector<Path> resPaths(rN->numNodes, Path());
+    vector<Path> resPaths(rN->numNodes + 1, Path());
     vector<Path> resSimplePathsOrdered;
-    vector<int> resLabels(rN->numNodes, 0);
+    vector<int> resLabels(rN->numNodes + 1, 0);
 
     PriorityQueue queue;
     unsigned int newLength = 0;
     EdgeList::iterator iterAdj;
-    vector<NodeId> distancesF(rN->numNodes, INT_MAX);
-    vector<NodeId> distancesB(rN->numNodes, INT_MAX);
+    vector<NodeId> distancesF(rN->numNodes + 1, INT_MAX);
+    vector<NodeId> distancesB(rN->numNodes + 1, INT_MAX);
 
     Label *tempLabel = nullptr;
     distancesF[source] = 0;
@@ -273,8 +248,7 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
     allCreatedLabels.push_back(srcLabel);
     unsigned int nodeCount = 0;
 
-    while (!queue.empty())
-    {
+    while (!queue.empty()) {
         Label *curLabel = queue.top();
         queue.pop();
 
@@ -289,18 +263,15 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
         allCreatedLabels.push_back(svpLabels[curLabel->node_id].first);
 
         nodeCount++;
-        if (nodeCount == rN->numNodes)
+        if (nodeCount == rN->numNodes + 1)
             break;
 
-        else
-        { // Expand search
+        else { // Expand search
             for (iterAdj = rN->adjListOut[curLabel->node_id].begin();
-                 iterAdj != rN->adjListOut[curLabel->node_id].end(); iterAdj++)
-            {
+                 iterAdj != rN->adjListOut[curLabel->node_id].end(); iterAdj++) {
                 newLength = curLabel->length + iterAdj->second;
                 Label *newPrevious = curLabel;
-                if (distancesF[iterAdj->first] > newLength)
-                {
+                if (distancesF[iterAdj->first] > newLength) {
                     auto *label = new Label(iterAdj->first, newLength, newPrevious);
                     allCreatedLabels.push_back(label);
                     queue.push(label);
@@ -312,7 +283,7 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
     queue = PriorityQueue();
     assert(queue.empty());
 
-    vector<bool> visited(rN->numNodes, false);
+    vector<bool> visited(rN->numNodes + 1, false);
     tempLabel = nullptr;
     vector<NodeId> tempVetices;
     nodeCount = 0;
@@ -323,8 +294,7 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
     allCreatedLabels.push_back(svpLabels[target].second);
     allCreatedLabels.push_back(trgLabel);
 
-    while (!queue.empty())
-    {
+    while (!queue.empty()) {
         Label *curLabel = queue.top();
         queue.pop();
 
@@ -337,18 +307,15 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
         allCreatedLabels.push_back(svpLabels[curLabel->node_id].second);
 
         nodeCount++;
-        if (nodeCount == rN->numNodes)
+        if (nodeCount == rN->numNodes + 1)
             break;
 
-        else
-        { // Expand search
+        else { // Expand search
             for (iterAdj = rN->adjListInc[curLabel->node_id].begin();
-                 iterAdj != rN->adjListInc[curLabel->node_id].end(); iterAdj++)
-            {
+                 iterAdj != rN->adjListInc[curLabel->node_id].end(); iterAdj++) {
                 newLength = curLabel->length + iterAdj->second;
                 Label *newPrevious = curLabel;
-                if (distancesB[iterAdj->first] > newLength)
-                {
+                if (distancesB[iterAdj->first] > newLength) {
                     auto *label = new Label(iterAdj->first, newLength, newPrevious);
                     allCreatedLabels.push_back(label);
                     queue.push(label);
@@ -357,8 +324,7 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
         }
     }
 
-    for (unsigned int i = 0; i < rN->numNodes; i++)
-    {
+    for (unsigned int i = 0; i < rN->numNodes + 1; i++) {
         if (svpLabels[i].first == NULL || svpLabels[i].second == NULL)
             continue;
         svpQueue.push(svpLabels[i]);
@@ -369,15 +335,13 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
     sp.length = svpQueue.top().first->length + svpQueue.top().second->length;
     tempLabel = nullptr;
     tempLabel = svpQueue.top().first;
-    while (tempLabel != nullptr)
-    {
+    while (tempLabel != nullptr) {
         sp.nodes.push_back(tempLabel->node_id);
         tempLabel = tempLabel->previous;
     }
     reverse(sp.nodes.begin(), sp.nodes.end());
     tempLabel = svpQueue.top().second->previous;
-    while (tempLabel != nullptr)
-    {
+    while (tempLabel != nullptr) {
         sp.nodes.push_back(tempLabel->node_id);
         tempLabel = tempLabel->previous;
     }
@@ -387,8 +351,7 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
 
     double globalMin = 1;
 
-    while (resPathsFinal.size() < k && !svpQueue.empty())
-    {
+    while (resPathsFinal.size() < k && !svpQueue.empty()) {
         Path tempP;
         SvpLabel svpLabelCurrent = svpQueue.top();
         svpQueue.pop();
@@ -396,18 +359,15 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
         tempP.length = svpLabelCurrent.first->length + svpLabelCurrent.second->length;
         tempLabel = nullptr;
         tempLabel = svpLabelCurrent.first;
-        while (tempLabel != nullptr)
-        {
+        while (tempLabel != nullptr) {
             tempP.nodes.push_back(tempLabel->node_id);
             tempLabel = tempLabel->previous;
         }
         reverse(tempP.nodes.begin(), tempP.nodes.end());
         tempLabel = svpLabelCurrent.second->previous;
         bool check = true;
-        while (tempLabel != nullptr)
-        {
-            if (find(tempP.nodes.begin(), tempP.nodes.end(), tempLabel->node_id) != tempP.nodes.end())
-            {
+        while (tempLabel != nullptr) {
+            if (find(tempP.nodes.begin(), tempP.nodes.end(), tempLabel->node_id) != tempP.nodes.end()) {
                 check = false;
                 break;
             }
@@ -422,26 +382,21 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
         candidatePaths.push_back(tempP);
 
         double localMax = -1;
-        for (auto &k: resPathsFinal)
-        {
+        for (auto &k: resPathsFinal) {
             double currentTheta = tempP.overlap_ratio(rN, k);
 
-            if (currentTheta > theta)
-            {
+            if (currentTheta > theta) {
                 check = false;
             }
             if (currentTheta >= localMax)
                 localMax = currentTheta;
         }
-        if (check)
-        {
+        if (check) {
             resPathsFinal.push_back(tempP);
             if (resPathsFinal.size() == k)
                 break;
-        } else
-        {
-            if (localMax < globalMin)
-            {
+        } else {
+            if (localMax < globalMin) {
                 globalMin = localMax;
             }
         }
@@ -453,23 +408,19 @@ svp_plus_complete(RoadNetwork *rN, NodeId source, NodeId target, unsigned int k,
 
 
     pair<vector<Path>, double> resPair = make_pair(resPathsFinal, theta);
-    if (resPathsFinal.size() < k)
-    {
+    if (resPathsFinal.size() < k) {
         sort(candidatePaths.begin(), candidatePaths.end(), pComp);
         candidatePaths.erase(unique(candidatePaths.begin(), candidatePaths.end()), candidatePaths.end());
-        if (candidatePaths.size() < k)
-        {
+        if (candidatePaths.size() < k) {
             vector<Path> ksp = onepass(rN, source, target, k,
                                        0.999); // Can be replaced with a better k-shortest path KSP.
-            for (unsigned int i = 1; i < ksp.size(); i++)
-            {
+            for (unsigned int i = 1; i < ksp.size(); i++) {
                 candidatePaths.push_back(ksp[i]);
             }
             sort(candidatePaths.begin(), candidatePaths.end(), pComp);
             candidatePaths.erase(unique(candidatePaths.begin(), candidatePaths.end()), candidatePaths.end());
             return completeness_function(rN, candidatePaths, k, theta);
-        } else
-        {
+        } else {
             return completeness_function(rN, candidatePaths, k, globalMin);
         }
     }

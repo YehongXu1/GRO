@@ -14,7 +14,7 @@ Copyright (c) 2017 Theodoros Chondrogiannis
 #include <vector>
 #include <unordered_map>
 
-#include "../model/graph.h"
+#include "../model/Graph.h"
 #include "../tools/tools.h"
 
 using namespace std;
