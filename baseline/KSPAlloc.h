@@ -13,15 +13,15 @@ public:
     TrafficMaintain &traffic;
     vector<vector<Path>> candidates;
     int selectAPath(RequestId req);
-    Label* pathToLabel(Path &path);
+    void pathToLabelV(RequestId req, Path &path);
     void getCandiPaths();
-    long long int cost = INT_MAX;
-    int k;
-    double theta;
+    unsigned int cost = INT_MAX;
+    int k = 5;
+    double theta = 0.75;
 
     explicit KSPAlloc(TrafficMaintain &traffic, int k, double theta);
+    explicit KSPAlloc(TrafficMaintain &traffic);
     void assignPath();
-    long long int getCost();
 
     void getCandiPaths(int begin, int end);
 };
