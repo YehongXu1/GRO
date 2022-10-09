@@ -15,10 +15,9 @@ add_executable(traffic_assignment
         main.cpp
         baseline/KSPAlloc.h baseline/KSPAlloc.cpp
         KSP/completeness.cpp KSP/esx.cpp KSP/kspwlo.h KSP/multipass.cpp KSP/onepass.cpp KSP/onepass_plus.cpp KSP/skyline.cpp KSP/svp_plus.cpp
-        model/graph.h model/graph.cpp model/Semaphore.h
+        model/Graph.h model/Graph.cpp model/Semaphore.h
         tools/tools.h tools/dijkstra.cpp tools/astar.cpp
-        traffic/routingMain.cpp traffic/TrafficMaintain.cpp traffic/TrafficMaintain.cpp
-        traffic/PathSelection.cpp)
+        traffic/Traffic.h traffic/Framework.cpp traffic/TrafficMaintain.cpp traffic/TrafficMaintain.cpp traffic/PathSelection.cpp traffic/MainAlg.cpp model/DisGraph.cpp baseline/IJCAI.cpp baseline/IJCAI.h baseline/Baseline.cpp baseline/Baseline.h)
 
 target_link_libraries(
         ${PROJECT_NAME}
